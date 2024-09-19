@@ -7,14 +7,14 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 0) out vec3 outColor;
 layout(location = 1) out vec2 outTexCoord;
 
-layout(binding = 1) uniform Projection {
-  mat4 world;
+layout(binding = 1) uniform Transform {
+  mat4 model;
   mat4 view;
   mat4 proj;
-} prjct;
+} t;
 
 void main() {
-  gl_Position = prjct.proj * prjct.view * prjct.world * vec4(inPosition, 1.0);
+  gl_Position = t.proj * t.view * t.model * vec4(inPosition, 1.0);
   outColor = inColor;
   outTexCoord = inTexCoord;
 }
