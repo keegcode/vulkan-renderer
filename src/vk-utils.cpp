@@ -1,4 +1,5 @@
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_enums.hpp>
 #include "vk-utils.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -18,7 +19,52 @@ vkb::Swapchain utils::createSwapchain(vkb::Device device, vk::Extent2D extent, u
   return swapchainResult.value(); 
 };
 
-Image utils::createImage(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, const std::string_view path, vk::ImageLayout layout) {
+Image utils::createImage(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, vk::Extent3D extent, vk::Format format, vk::ImageUsageFlagBits usage, vk::ImageAspectFlagBits aspectMask) {
+  Image image{};
+
+  VkImageCreateInfo imageCreateInfo = vk::ImageCreateInfo{}
+    .setImageType(vk::ImageType::e2D)
+    .setFormat(format)
+    .setMipLevels(1)
+    .setArrayLayers(1)
+    .setSamples(vk::SampleCountFlagBits::e1)
+    .setTiling(vk::ImageTiling::eOptimal)
+    .setUsage(usage)
+    .setSharingMode(vk::SharingMode::eExclusive)
+    .setInitialLayout(vk::ImageLayout::eUndefined)
+    .setExtent(extent);
+
+  VmaAllocationCreateInfo imageAllocationCreateInfo{};
+  imageAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  imageAllocationCreateInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+
+  VkImage vkImage;
+  VmaAllocation allocation;
+
+  vmaCreateImage(allocator, &imageCreateInfo, &imageAllocationCreateInfo, &vkImage, &allocation, nullptr);
+
+  image.image = vkImage;
+  image.allocation = allocation;
+
+  vk::ImageSubresourceRange imageSubresourceRange = vk::ImageSubresourceRange{}
+    .setLayerCount(1)
+    .setAspectMask(aspectMask)
+    .setBaseMipLevel(0)
+    .setLevelCount(1)
+    .setBaseArrayLayer(0);
+
+  vk::ImageViewCreateInfo imageViewCreateInfo = vk::ImageViewCreateInfo{}
+      .setImage(image.image)
+      .setViewType(vk::ImageViewType::e2D)
+      .setFormat(format)
+      .setSubresourceRange(imageSubresourceRange);
+  
+  image.imageView = device.createImageView(imageViewCreateInfo, nullptr);
+
+  return image;
+}
+
+Image utils::createTextureImage(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, const std::string_view path, vk::ImageLayout layout) {
   Image image{};
 
   unsigned char* data = stbi_load(path.data(), reinterpret_cast<int*>(&image.extent.width), reinterpret_cast<int*>(&image.extent.height), nullptr, STBI_rgb_alpha);
@@ -69,7 +115,7 @@ Image utils::createImage(const VmaAllocator& allocator, const vk::Device& device
   
   utils::transitionImageLayout(device, commandPool, transferQueue, image.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
   utils::copyBufferToImage(allocator, device, commandPool, transferQueue, image.image, data, extent);
-  utils::transitionImageLayout(device, commandPool, transferQueue, image.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+  utils::transitionImageLayout(device, commandPool, transferQueue, image.image, vk::ImageLayout::eUndefined, layout);
 
   stbi_image_free(data);
 

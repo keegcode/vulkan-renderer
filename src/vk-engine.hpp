@@ -24,8 +24,8 @@ public:
 
   bool isRunning = true;
 
-  void init(const Display& display, const Transform& transform, const std::string_view texturePath);
-  void createMesh(const std::vector<Vertex> vertices, const std::vector<uint16_t> indices);
+  void init(const Display& d, const Transform& transform, const std::string_view meshPath, const std::string_view texturePath);
+  void createMesh(const std::string_view path);
   void drawFrame();
   void processInput();
   void destroy();
@@ -44,6 +44,8 @@ private:
   std::vector<VkImage> swapchainImages;
   std::vector<VkImageView> swapchainImageViews;
 
+  Image depthImage;
+
   VmaAllocator allocator;
   std::deque<std::function<void()>> deleteQueue;
 
@@ -58,7 +60,6 @@ private:
   uint16_t frame = 0;
   bool shouldBeResized = false;
 
-  vk::ClearValue clearValue;
   vk::Viewport viewport;
   vk::Rect2D scissors;
 
@@ -70,6 +71,7 @@ private:
   void pickDevice();
   void createAllocator();
   void createSwapchain();
+  void createDepthImage();
   void createViewportAndScissors();
   void createQueue();
   void createSyncPrimitives();

@@ -2,7 +2,17 @@
 #include "vk-structs.hpp"
 #include "vk-utils.hpp"
 
-void VkEngine::init(const Display& d, const Transform& transform, const std::string_view texturePath) {
+#include <cstdint>
+#include <cstdlib>
+#include <stdexcept>
+
+#include <assimp/Importer.hpp>      
+#include <assimp/scene.h>           
+#include <assimp/postprocess.h>  
+#include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_structs.hpp>
+
+void VkEngine::init(const Display& d, const Transform& transform, const std::string_view meshPath, const std::string_view texturePath) {
   display = d;
   createInstance();
   pickPhysicalDevice();
@@ -13,7 +23,9 @@ void VkEngine::init(const Display& d, const Transform& transform, const std::str
   createSyncPrimitives();
   createCommandPool();
   createCommandBuffers();
+  createMesh(meshPath);
   createShaders(transform, texturePath);
+  createDepthImage();
   createViewportAndScissors();
   createGraphicsPipeline();
 };
@@ -57,6 +69,16 @@ void VkEngine::drawFrame() {
       break;
   }
 
+  vk::ClearValue clearValue = vk::ClearValue{}.setColor(vk::ClearColorValue{}.setUint32({0xFF, 0XFF, 0xFF, 0xFF}));
+  vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
+
+  vk::RenderingAttachmentInfo depthAttachment = vk::RenderingAttachmentInfo{}
+    .setImageView(depthImage.imageView)
+    .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+    .setLoadOp(vk::AttachmentLoadOp::eClear)
+    .setStoreOp(vk::AttachmentStoreOp::eNone)
+    .setClearValue(depthClearValue);
+
   vk::RenderingAttachmentInfo attachment = vk::RenderingAttachmentInfo{}
     .setImageView(swapchainImageViews[frame])
     .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
@@ -69,7 +91,15 @@ void VkEngine::drawFrame() {
     .setLayerCount(1)
     .setViewMask(0)
     .setColorAttachmentCount(1)
-    .setColorAttachments(attachment);
+    .setColorAttachments(attachment)
+    .setPDepthAttachment(&depthAttachment);
+
+  vk::ImageSubresourceRange depthSubresourceRange = vk::ImageSubresourceRange{}
+    .setLayerCount(1)
+    .setAspectMask(vk::ImageAspectFlagBits::eDepth)
+    .setBaseMipLevel(0)
+    .setLevelCount(1)
+    .setBaseArrayLayer(0);
 
   vk::ImageSubresourceRange subresourceRange = vk::ImageSubresourceRange{}
     .setLayerCount(1)
@@ -77,6 +107,16 @@ void VkEngine::drawFrame() {
     .setBaseMipLevel(0)
     .setLevelCount(1)
     .setBaseArrayLayer(0);
+
+  vk::ImageMemoryBarrier2 depthMemoryBarrier = vk::ImageMemoryBarrier2{}
+    .setImage(depthImage.image)
+    .setOldLayout(vk::ImageLayout::eUndefined)
+    .setNewLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+    .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+    .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+    .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+    .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+    .setSubresourceRange(depthSubresourceRange);
 
   vk::ImageMemoryBarrier2 imageMemoryBarrier = vk::ImageMemoryBarrier2{}
     .setImage(swapchainImages[frame])
@@ -98,11 +138,11 @@ void VkEngine::drawFrame() {
     .setDstStageMask(vk::PipelineStageFlagBits2::eBottomOfPipe)
     .setSubresourceRange(subresourceRange);
 
-  vk::ImageMemoryBarrier2 imageMemoryBarriers[2] = {imageMemoryBarrier, presentImageMemoryBarrier};
+  vk::ImageMemoryBarrier2 imageMemoryBarriers[3] = {depthMemoryBarrier, imageMemoryBarrier, presentImageMemoryBarrier};
 
   vk::DependencyInfo dependencyInfo = vk::DependencyInfo{}
     .setImageMemoryBarriers(imageMemoryBarriers)
-    .setImageMemoryBarrierCount(2);
+    .setImageMemoryBarrierCount(3);
   
   commandBuffer.pipelineBarrier2(dependencyInfo);
 
@@ -299,6 +339,15 @@ void VkEngine::createSwapchain() {
   });
 }
 
+void VkEngine::createDepthImage() {
+  depthImage = utils::createImage(allocator, device.device, commandPool, queue, vk::Extent3D{swapchain.extent}.setDepth(1), vk::Format::eD32Sfloat, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::ImageAspectFlagBits::eDepth);
+
+  deleteQueue.push_back([&](){
+    vk::Device{device}.destroyImageView(depthImage.imageView);
+    vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
+  });
+}
+
 void VkEngine::createViewportAndScissors() {
   vk::Extent3D extent = vk::Extent3D{}
     .setDepth(0)
@@ -382,7 +431,7 @@ void VkEngine::createShaders(const Transform& transform, const std::string_view&
   vertexShader.init(device.device, "./shaders/vert.spv");
 
   Buffer ubo = utils::createBuffer(allocator, &transform, sizeof(Transform), vk::BufferUsageFlagBits::eUniformBuffer);
-  Image texture = utils::createImage(allocator, device.device, commandPool, queue, texturePath, vk::ImageLayout::eShaderReadOnlyOptimal);
+  Image texture = utils::createTextureImage(allocator, device.device, commandPool, queue, texturePath, vk::ImageLayout::eShaderReadOnlyOptimal);
 
   fragmentShader.init(device.device, "./shaders/frag.spv", MAX_CONCURRENT_FRAMES, ubo, texture);
   
@@ -395,15 +444,55 @@ void VkEngine::createShaders(const Transform& transform, const std::string_view&
   });
 }
 
+void VkEngine::createMesh(const std::string_view path) {
+  Assimp::Importer importer{};
 
-void VkEngine::createMesh(const std::vector<Vertex> vertices, const std::vector<uint16_t> indices) {
+  const aiScene* scene = importer.ReadFile(
+    path.data(), 
+    aiProcess_Triangulate | 
+    aiProcess_FlipUVs |
+    aiProcess_GenNormals |
+    aiProcess_GenUVCoords
+  );
+
+  if (!scene) {
+    throw std::runtime_error{std::string{"Failed to read mesh file: "} + importer.GetErrorString()};
+  }
+
   Mesh mesh{};
+
+  for (size_t i = 0; i < scene->mNumMeshes; i++) {
+    aiMesh* assimpMesh = scene->mMeshes[i];
+
+    for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
+      Vertex vertex{};
+
+      vertex.pos[0] = assimpMesh->mVertices[j].x;
+      vertex.pos[1] = assimpMesh->mVertices[j].y;
+      vertex.pos[2] = assimpMesh->mVertices[j].z;
+
+      vertex.clr[0] = 255.0f / (uint8_t) rand(); 
+      vertex.clr[1] = 255.0f / (uint8_t) rand(); 
+      vertex.clr[2] = 255.0f / (uint8_t) rand(); 
+
+      vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
+      vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
+
+      mesh.vertices.push_back(vertex);
+    }
+
+    for (size_t j = 0; j < assimpMesh->mNumFaces; j++) {
+      assert(assimpMesh->mFaces[j].mNumIndices == 3);
+      mesh.indices.push_back(assimpMesh->mFaces[j].mIndices[0]);
+      mesh.indices.push_back(assimpMesh->mFaces[j].mIndices[1]);
+      mesh.indices.push_back(assimpMesh->mFaces[j].mIndices[2]);
+    }
+  }
+
+  importer.FreeScene();
   
-  mesh.indices = indices;
-  mesh.vertices = vertices;
-  
-  Buffer vertexBuffer = utils::createBuffer(allocator, vertices.data(), sizeof(Vertex) * vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
-  Buffer indexBuffer = utils::createBuffer(allocator, indices.data(), sizeof(uint16_t) * indices.size(), vk::BufferUsageFlagBits::eIndexBuffer);
+  Buffer vertexBuffer = utils::createBuffer(allocator, mesh.vertices.data(), sizeof(Vertex) * mesh.vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
+  Buffer indexBuffer = utils::createBuffer(allocator, mesh.indices.data(), sizeof(uint16_t) * mesh.indices.size(), vk::BufferUsageFlagBits::eIndexBuffer);
 
   mesh.vertexBuffer = vertexBuffer;
   mesh.indexBuffer = indexBuffer;
@@ -419,7 +508,6 @@ void VkEngine::createMesh(const std::vector<Vertex> vertices, const std::vector<
 void VkEngine::createGraphicsPipeline() {
   vk::Device d = device.device;
 
-  clearValue = vk::ClearValue{}.setColor(vk::ClearColorValue{}.setUint32({0xFF, 0XFF, 0xFF, 0xFF}));
 
   vk::VertexInputBindingDescription vertexInputBindingDescription = vk::VertexInputBindingDescription{}
     .setStride(sizeof(Vertex))
@@ -457,9 +545,11 @@ void VkEngine::createGraphicsPipeline() {
     .setPSpecializationInfo(nullptr);
   
   vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
+  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = vk::PipelineRenderingCreateInfo{}
     .setColorAttachmentCount(1)
+    .setDepthAttachmentFormat(depthAttachmentFormat)
     .setColorAttachmentFormats(colorAttachmentFormat);
   
   std::vector<vk::PipelineShaderStageCreateInfo> stages{
@@ -503,11 +593,11 @@ void VkEngine::createGraphicsPipeline() {
     .setSampleShadingEnable(0);
 
   vk::PipelineDepthStencilStateCreateInfo depthStencilState = vk::PipelineDepthStencilStateCreateInfo{}
-    .setDepthTestEnable(0)
-    .setDepthWriteEnable(0)
+    .setDepthTestEnable(1)
+    .setDepthWriteEnable(1)
     .setStencilTestEnable(0)
     .setDepthBoundsTestEnable(0)
-    .setDepthCompareOp(vk::CompareOp::eNever);
+    .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
 
   vk::PipelineColorBlendAttachmentState colorBlendAttachmentState = vk::PipelineColorBlendAttachmentState{}
       .setBlendEnable(0)
