@@ -1,7 +1,9 @@
 #include "vk-engine.hpp"
+#include "VkBootstrap.h"
 #include "vk-structs.hpp"
 #include "vk-utils.hpp"
 
+#include <SDL_video.h>
 #include <cstdint>
 #include <cstdlib>
 #include <stdexcept>
@@ -29,14 +31,67 @@ void VkEngine::init(const Display& d, const Transform& transform, const std::str
   createViewportAndScissors();
   createGraphicsPipeline();
 };
+  
+void VkEngine::destroySwapchainResources() {
+  vk::Device d = device.device;
+
+  for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
+    d.destroyImageView(swapchainImageViews[i]);
+  }
+
+  d.destroyImageView(depthImage.imageView);
+  vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
+}
+
+void VkEngine::rebuiltSwapchain() {
+  vk::Device d = device.device;
+  vkb::Swapchain old = swapchain;
+
+  d.waitIdle();
+
+  destroySwapchainResources();
+
+  createSwapchain();
+  createDepthImage();
+  createViewportAndScissors();
+
+  vkb::destroy_swapchain(old);
+}
 
 void VkEngine::drawFrame() {
   vk::Device d = device.device;
-  vk::SwapchainKHR s = swapchain.swapchain;
 
   if (d.waitForFences(1, &fences[frame], 1, UINT64_MAX) != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to wait for fence"};
   };
+
+  if (shouldBeResized) {
+    rebuiltSwapchain();
+    shouldBeResized = false;
+  }
+
+  vk::SwapchainKHR swap = swapchain.swapchain;
+  
+  uint32_t imageIndex;
+  vk::Result acquireResult = d.acquireNextImageKHR(swap, UINT64_MAX, presentCompleteSemaphores[frame], nullptr, &imageIndex);
+
+  vk::ImageView swapImageView = swapchainImageViews[imageIndex];
+  vk::Image swapImage = swapchainImages[imageIndex];
+  
+  switch (acquireResult) {
+    case vk::Result::eSuccess:
+      break;
+    case vk::Result::eSuboptimalKHR:
+      rebuiltSwapchain();
+      return;
+    case vk::Result::eErrorOutOfDateKHR:
+      rebuiltSwapchain();
+      return;
+    case vk::Result::eNotReady:
+    default:
+      throw std::runtime_error{"Failed to acquire next image"};
+      break;
+  }
 
   if (d.resetFences(1, &fences[frame]) != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to reset fence"};
@@ -51,23 +106,6 @@ void VkEngine::drawFrame() {
     .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
   commandBuffer.begin(beginInfo);
- 
-  uint32_t imageIndex;
-  vk::Result acquireResult = d.acquireNextImageKHR(s, UINT64_MAX, presentCompleteSemaphores[frame], nullptr, &imageIndex);
-  
-  switch (acquireResult) {
-    case vk::Result::eSuccess:
-      break;
-    case vk::Result::eSuboptimalKHR:
-      break;
-    case vk::Result::eErrorOutOfDateKHR:
-      throw std::runtime_error{"Out of date swapchain"};
-      break;
-    case vk::Result::eNotReady:
-    default:
-      throw std::runtime_error{"Failed to acquire next image"};
-      break;
-  }
 
   vk::ClearValue clearValue = vk::ClearValue{}.setColor(vk::ClearColorValue{}.setUint32({0xFF, 0XFF, 0xFF, 0xFF}));
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
@@ -80,7 +118,7 @@ void VkEngine::drawFrame() {
     .setClearValue(depthClearValue);
 
   vk::RenderingAttachmentInfo attachment = vk::RenderingAttachmentInfo{}
-    .setImageView(swapchainImageViews[frame])
+    .setImageView(swapImageView)
     .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
     .setLoadOp(vk::AttachmentLoadOp::eClear)
     .setStoreOp(vk::AttachmentStoreOp::eStore)
@@ -119,7 +157,7 @@ void VkEngine::drawFrame() {
     .setSubresourceRange(depthSubresourceRange);
 
   vk::ImageMemoryBarrier2 imageMemoryBarrier = vk::ImageMemoryBarrier2{}
-    .setImage(swapchainImages[frame])
+    .setImage(swapImage)
     .setOldLayout(vk::ImageLayout::eUndefined)
     .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
     .setSrcAccessMask(vk::AccessFlagBits2::eNone)
@@ -129,7 +167,7 @@ void VkEngine::drawFrame() {
     .setSubresourceRange(subresourceRange);
 
   vk::ImageMemoryBarrier2 presentImageMemoryBarrier = vk::ImageMemoryBarrier2{}
-    .setImage(swapchainImages[frame])
+    .setImage(swapImage)
     .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
     .setNewLayout(vk::ImageLayout::ePresentSrcKHR)
     .setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
@@ -194,7 +232,7 @@ void VkEngine::drawFrame() {
     .setWaitSemaphoreCount(1)
     .setWaitSemaphores(renderCompleteSemaphores[frame])
     .setSwapchainCount(1)
-    .setSwapchains(s)
+    .setSwapchains(swap)
     .setImageIndices(imageIndices);
 
   vk::Result presentResult = queue.presentKHR(&presentInfo);
@@ -203,9 +241,10 @@ void VkEngine::drawFrame() {
     case vk::Result::eSuccess:
       break;
     case vk::Result::eSuboptimalKHR:
+      rebuiltSwapchain();
       break;
     case vk::Result::eErrorOutOfDateKHR:
-      throw std::runtime_error{"Out of date swapchain"};
+      rebuiltSwapchain();
       break;
     case vk::Result::eNotReady:
       throw std::runtime_error{"Not ready swapchain"};
@@ -229,6 +268,9 @@ void VkEngine::processInput() {
       isRunning = false;
       break;
     }
+    if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
+      shouldBeResized = true;
+    }
   }
 };
 
@@ -241,6 +283,13 @@ void VkEngine::destroy() {
     deleteQueue.back()();
     deleteQueue.pop_back();
   }
+  
+  destroySwapchainResources();
+  vkb::destroy_swapchain(swapchain);
+  vkb::destroy_surface(instance, surface);
+  vmaDestroyAllocator(allocator);
+  vkb::destroy_device(device);
+  vkb::destroy_instance(instance);
 };
 
 void VkEngine::createInstance() {
@@ -258,12 +307,10 @@ void VkEngine::createInstance() {
   }
 
   instance = instanceResult.value();
-  deleteQueue.push_back([&]() { vkb::destroy_instance(instance); });
 };
 
 void VkEngine::pickPhysicalDevice() {
   surface = display.createVulkanSurface(instance.instance);
-  deleteQueue.push_back([&]() { vkb::destroy_surface(instance, surface); });
 
   vkb::Result<vkb::PhysicalDevice> physicalDeviceResult = vkb::PhysicalDeviceSelector{instance}
     .set_surface(surface)
@@ -289,7 +336,6 @@ void VkEngine::pickDevice() {
   }
 
   device = deviceResult.value();
-  deleteQueue.push_back([&]() { vkb::destroy_device(device); });
 };
 
 void VkEngine::createAllocator() {
@@ -306,16 +352,17 @@ void VkEngine::createAllocator() {
   if (vmaCreateAllocator(&createInfo, &allocator) != VK_SUCCESS) {
     throw std::runtime_error{"Failed to create a VmaAllocator"};
   };
-
-  deleteQueue.push_back([&]() { vmaDestroyAllocator(allocator); });
 };
 
 void VkEngine::createSwapchain() {
-  vk::Extent2D extent = vk::Extent2D{}
-    .setWidth(display.displayMode.w)
-    .setHeight(display.displayMode.h);
+  int w, h;
+  SDL_GetWindowSize(display.window, &w, &h);
 
-  swapchain = utils::createSwapchain(device, extent, MAX_CONCURRENT_FRAMES);
+  vk::Extent2D extent = vk::Extent2D{}
+    .setWidth(w)
+    .setHeight(h);
+
+  swapchain = utils::createSwapchain(device, extent, MAX_CONCURRENT_FRAMES, &swapchain);
   
   vkb::Result<std::vector<VkImageView>> imageViewsResult = swapchain.get_image_views();
   vkb::Result<std::vector<VkImage>> imagesResult = swapchain.get_images();
@@ -330,22 +377,10 @@ void VkEngine::createSwapchain() {
 
   swapchainImageViews = imageViewsResult.value();
   swapchainImages = imagesResult.value();
-
-  deleteQueue.push_back([&](){
-    for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-      vk::Device{device}.destroyImageView(swapchainImageViews[i]);
-    }
-    vk::Device{device}.destroySwapchainKHR(swapchain.swapchain);
-  });
 }
 
 void VkEngine::createDepthImage() {
   depthImage = utils::createImage(allocator, device.device, commandPool, queue, vk::Extent3D{swapchain.extent}.setDepth(1), vk::Format::eD32Sfloat, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::ImageAspectFlagBits::eDepth);
-
-  deleteQueue.push_back([&](){
-    vk::Device{device}.destroyImageView(depthImage.imageView);
-    vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
-  });
 }
 
 void VkEngine::createViewportAndScissors() {
@@ -475,8 +510,10 @@ void VkEngine::createMesh(const std::string_view path) {
       vertex.clr[1] = 255.0f / (uint8_t) rand(); 
       vertex.clr[2] = 255.0f / (uint8_t) rand(); 
 
-      vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
-      vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
+      if (assimpMesh->HasTextureCoords(0)) {
+        vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
+        vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
+      }
 
       mesh.vertices.push_back(vertex);
     }
@@ -507,7 +544,6 @@ void VkEngine::createMesh(const std::string_view path) {
 
 void VkEngine::createGraphicsPipeline() {
   vk::Device d = device.device;
-
 
   vk::VertexInputBindingDescription vertexInputBindingDescription = vk::VertexInputBindingDescription{}
     .setStride(sizeof(Vertex))

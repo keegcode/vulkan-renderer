@@ -7,7 +7,7 @@
 #include "vk-structs.hpp"
 
 namespace utils {
-  vkb::Swapchain createSwapchain(vkb::Device device, vk::Extent2D extent, uint16_t minImageCount);
+  vkb::Swapchain createSwapchain(vkb::Device device, vk::Extent2D extent, uint16_t minImageCount, vkb::Swapchain* old);
   Image createTextureImage(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, const std::string_view path, vk::ImageLayout layout);
   Image createImage(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, vk::Extent3D extent, vk::Format format, vk::ImageUsageFlagBits usage, vk::ImageAspectFlagBits aspectMask);
   std::tuple<vk::Viewport, vk::Rect2D> createViewportAndScissors(const vk::Extent3D& extent);

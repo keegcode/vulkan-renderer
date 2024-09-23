@@ -17,7 +17,7 @@ void Display::init() {
     throw std::runtime_error{std::string{"Failed to get display mode: "} + SDL_GetError()};
   }
 
-  window = SDL_CreateWindow("Vulkan", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, displayMode.w, displayMode.h, SDL_WINDOW_VULKAN);
+  window = SDL_CreateWindow("Vulkan", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, displayMode.w, displayMode.h, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
   if (!window) {
     throw std::runtime_error{std::string{"Failed to create SDL window: "} + SDL_GetError()};
   }

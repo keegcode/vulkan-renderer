@@ -71,6 +71,8 @@ private:
   void pickDevice();
   void createAllocator();
   void createSwapchain();
+  void rebuiltSwapchain();
+  void destroySwapchainResources();
   void createDepthImage();
   void createViewportAndScissors();
   void createQueue();

@@ -19,14 +19,14 @@ int main() {
   
   model = glm::rotate(model, glm::radians(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
   view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-  proj = glm::perspective(glm::radians(45.0f), display.displayMode.w / (float) display.displayMode.h, 0.1f, 10.0f);
+  proj = glm::perspective(glm::radians(80.0f), display.displayMode.w / (float) display.displayMode.h, 0.1f, 10.0f);
 
   proj[1][1] *= -1;
 
   Transform transform{model, view, proj};
 
   VkEngine engine{};
-  engine.init(display, transform, "./assets/stalker.obj", "./textures/stalker.png");
+  engine.init(display, transform, "./assets/cube.obj", "./textures/metal.jpg");
 
   engine.entities = {
     {.meshIndex=0,.pos={0.0f,0.0f,0.0f}},
