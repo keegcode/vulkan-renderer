@@ -1,3 +1,3 @@
-glslc ./shaders/shader.vert -o ./shaders/vert.spv
-glslc ./shaders/shader.frag -o ./shaders/frag.spv
+glslc ./shaders/default.vert -o ./shaders/default.vert.spv
+glslc ./shaders/default.frag -o ./shaders/default.frag.spv
 

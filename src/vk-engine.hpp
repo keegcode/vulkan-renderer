@@ -10,27 +10,35 @@
 #include <deque>
 #include <functional>
 
-#include "vk-structs.hpp"
-#include "vk-shader.hpp"
+#include "vk-pipeline.hpp"
 #include "sdl-display.hpp"
+#include "scene.hpp"
+#include "mesh.hpp"
+#include "texture.hpp"
 
 class VkEngine {
 public:
   std::vector<Mesh> meshes;
-  std::vector<Entity> entities;
-
-  VertexShader vertexShader;
-  FragmentShader fragmentShader;
+  std::vector<Texture> textures;
+  std::vector<Object> objects;
+  
+  std::vector<Pipeline> pipelines;
 
   bool isRunning = true;
 
-  void init(const Display& d, const Transform& transform, const std::string_view meshPath, const std::string_view texturePath);
-  void createMesh(const std::string_view path);
+  void init(const Display& d);
+  
+  void setProjection(const Projection& projection);
+  void addObject(const Object& object);
+  void loadMesh(const std::string_view path);
+  void loadTexture(const std::string_view path);
+
   void drawFrame();
   void processInput();
   void destroy();
 private:
   Display display;
+  Projection projection;
 
   vkb::Instance instance;
   vk::SurfaceKHR surface;
@@ -53,6 +61,9 @@ private:
   std::vector<vk::Semaphore> renderCompleteSemaphores;
   std::vector<vk::Semaphore> presentCompleteSemaphores;
 
+  vk::DescriptorPool descriptorPool;
+  vk::DescriptorSetLayout textureDescriptorSetLayout;
+
   vk::CommandPool commandPool;
   std::vector<vk::CommandBuffer> commadBuffers;
 
@@ -63,8 +74,7 @@ private:
   vk::Viewport viewport;
   vk::Rect2D scissors;
 
-  vk::Pipeline graphicsPipeline;
-  vk::PipelineLayout pipelineLayout;
+  vk::Sampler sampler;
 
   void createInstance();
   void pickPhysicalDevice();
@@ -77,8 +87,9 @@ private:
   void createViewportAndScissors();
   void createQueue();
   void createSyncPrimitives();
+  void createDescriptorPool();
   void createCommandPool();
   void createCommandBuffers();
-  void createShaders(const Transform& transform, const std::string_view& texturePath);
-  void createGraphicsPipeline();
+  void createSampler();
+  void createPipeline();
 };

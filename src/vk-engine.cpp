@@ -1,6 +1,7 @@
 #include "vk-engine.hpp"
 #include "VkBootstrap.h"
-#include "vk-structs.hpp"
+#include "image.hpp"
+#include "vk-pipeline.hpp"
 #include "vk-utils.hpp"
 
 #include <SDL_video.h>
@@ -14,7 +15,7 @@
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_structs.hpp>
 
-void VkEngine::init(const Display& d, const Transform& transform, const std::string_view meshPath, const std::string_view texturePath) {
+void VkEngine::init(const Display& d) {
   display = d;
   createInstance();
   pickPhysicalDevice();
@@ -23,13 +24,13 @@ void VkEngine::init(const Display& d, const Transform& transform, const std::str
   createAllocator();
   createQueue();
   createSyncPrimitives();
+  createDescriptorPool();
   createCommandPool();
   createCommandBuffers();
-  createMesh(meshPath);
-  createShaders(transform, texturePath);
+  createSampler();
   createDepthImage();
   createViewportAndScissors();
-  createGraphicsPipeline();
+  createPipeline();
 };
   
 void VkEngine::destroySwapchainResources() {
@@ -39,7 +40,7 @@ void VkEngine::destroySwapchainResources() {
     d.destroyImageView(swapchainImageViews[i]);
   }
 
-  d.destroyImageView(depthImage.imageView);
+  d.destroyImageView(depthImage.view);
   vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
 }
 
@@ -98,7 +99,6 @@ void VkEngine::drawFrame() {
   };
 
   vk::CommandBuffer commandBuffer = commadBuffers[frame];
-  vk::DescriptorSet descriptorSet = fragmentShader.descriptorSets[frame];
 
   commandBuffer.reset();
 
@@ -111,7 +111,7 @@ void VkEngine::drawFrame() {
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
 
   vk::RenderingAttachmentInfo depthAttachment = vk::RenderingAttachmentInfo{}
-    .setImageView(depthImage.imageView)
+    .setImageView(depthImage.view)
     .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
     .setLoadOp(vk::AttachmentLoadOp::eClear)
     .setStoreOp(vk::AttachmentStoreOp::eNone)
@@ -189,22 +189,28 @@ void VkEngine::drawFrame() {
   commandBuffer.setViewport(0, 1, &viewport);
   commandBuffer.setScissor(0, 1, &scissors);
 
-  commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
-  
-  std::vector<vk::Buffer> buffers{};
-  vk::DeviceSize offsets[1] = {0};
+  for (const Pipeline& pipeline : pipelines) {
+    vk::DescriptorSet descriptorSet = pipeline.descriptorSets[frame];
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.graphicsPipeline);
 
-  for (const Mesh& mesh : meshes) {
-    buffers.push_back(mesh.vertexBuffer.buffer);
-  }
+    vmaCopyMemoryToAllocation(allocator, &projection, pipeline.binding0.allocation, 0, sizeof(Projection));
 
-  commandBuffer.bindVertexBuffers(0, meshes.size(), buffers.data(), offsets);
+    std::vector<vk::Buffer> buffers{};
+    vk::DeviceSize offsets[1] = {0};
 
-  commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+    for (const Object& object : objects) {
+      const Mesh& mesh = meshes[object.meshIdx];
+      const Texture& texture = textures[object.textureIdx];
 
-  for (const Entity& entity : entities) {
-    commandBuffer.bindIndexBuffer(meshes[entity.meshIndex].indexBuffer.buffer, 0, vk::IndexType::eUint16);
-    commandBuffer.drawIndexed(meshes[entity.meshIndex].indices.size(), 1, 0, 0, 1);
+      std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], descriptorSet};
+
+      vmaCopyMemoryToAllocation(allocator, &object.pos, pipeline.binding1.allocation, 0, sizeof(glm::vec3));
+
+      commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 2, sets.data(), 0, nullptr);
+      commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
+      commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0, vk::IndexType::eUint16);
+      commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+    }
   }
 
   commandBuffer.endRendering();
@@ -380,7 +386,7 @@ void VkEngine::createSwapchain() {
 }
 
 void VkEngine::createDepthImage() {
-  depthImage = utils::createImage(allocator, device.device, commandPool, queue, vk::Extent3D{swapchain.extent}.setDepth(1), vk::Format::eD32Sfloat, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::ImageAspectFlagBits::eDepth);
+  depthImage = Image{allocator, device.device, commandPool, queue, vk::Extent3D{swapchain.extent}.setDepth(1), vk::Format::eD32Sfloat, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::ImageAspectFlagBits::eDepth};
 }
 
 void VkEngine::createViewportAndScissors() {
@@ -459,225 +465,118 @@ void VkEngine::createCommandBuffers() {
   };
 };
 
-void VkEngine::createShaders(const Transform& transform, const std::string_view& texturePath) {
-  vertexShader = VertexShader{};
-  fragmentShader = FragmentShader{};
-  
-  vertexShader.init(device.device, "./shaders/vert.spv");
 
-  Buffer ubo = utils::createBuffer(allocator, &transform, sizeof(Transform), vk::BufferUsageFlagBits::eUniformBuffer);
-  Image texture = utils::createTextureImage(allocator, device.device, commandPool, queue, texturePath, vk::ImageLayout::eShaderReadOnlyOptimal);
+void VkEngine::createPipeline() {
+  vk::Device d = vk::Device{device};
 
-  fragmentShader.init(device.device, "./shaders/frag.spv", MAX_CONCURRENT_FRAMES, ubo, texture);
-  
-  deleteQueue.push_back([=]() {
-    vertexShader.destroy();
-    fragmentShader.destroy();
-    vk::Device{device}.destroyImageView(texture.imageView);
-    vmaDestroyImage(allocator, texture.image, texture.allocation);
-    vmaDestroyBuffer(allocator, ubo.buffer, ubo.allocation);
+  vk::DescriptorSetLayoutBinding samplerBinding = vk::DescriptorSetLayoutBinding{}
+    .setBinding(0)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+    .setImmutableSamplers(sampler);
+
+  vk::DescriptorSetLayoutBinding projectionBidning = vk::DescriptorSetLayoutBinding{}
+    .setBinding(0)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
+
+  vk::DescriptorSetLayoutBinding objectBidning = vk::DescriptorSetLayoutBinding{}
+    .setBinding(1)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
+
+  std::vector<vk::DescriptorSetLayoutBinding> uniformBindings = {projectionBidning, objectBidning};
+
+  vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+    .setBindings(uniformBindings)
+    .setBindingCount(uniformBindings.size());
+
+  vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+    .setBindings(samplerBinding)
+    .setBindingCount(1);
+
+  vk::DescriptorSetLayout descriptorSetLayout = d.createDescriptorSetLayout(descriptorSetLayoutCreateInfo, nullptr);
+  vk::DescriptorSetLayout textureSetLayout = d.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
+
+  Shader vertex{d, "./shaders/default.vert.spv"};
+  Shader fragment{d, "./shaders/default.frag.spv"};
+
+  pipelines.push_back(Pipeline{
+    allocator,
+    vertex,
+    fragment,
+    d,
+    viewport,
+    scissors,
+    MAX_CONCURRENT_FRAMES,
+    descriptorPool,
+    descriptorSetLayout,
+    textureSetLayout
   });
-}
-
-void VkEngine::createMesh(const std::string_view path) {
-  Assimp::Importer importer{};
-
-  const aiScene* scene = importer.ReadFile(
-    path.data(), 
-    aiProcess_Triangulate | 
-    aiProcess_FlipUVs |
-    aiProcess_GenNormals |
-    aiProcess_GenUVCoords
-  );
-
-  if (!scene) {
-    throw std::runtime_error{std::string{"Failed to read mesh file: "} + importer.GetErrorString()};
-  }
-
-  Mesh mesh{};
-
-  for (size_t i = 0; i < scene->mNumMeshes; i++) {
-    aiMesh* assimpMesh = scene->mMeshes[i];
-
-    for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
-      Vertex vertex{};
-
-      vertex.pos[0] = assimpMesh->mVertices[j].x;
-      vertex.pos[1] = assimpMesh->mVertices[j].y;
-      vertex.pos[2] = assimpMesh->mVertices[j].z;
-
-      vertex.clr[0] = 255.0f / (uint8_t) rand(); 
-      vertex.clr[1] = 255.0f / (uint8_t) rand(); 
-      vertex.clr[2] = 255.0f / (uint8_t) rand(); 
-
-      if (assimpMesh->HasTextureCoords(0)) {
-        vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
-        vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
-      }
-
-      mesh.vertices.push_back(vertex);
-    }
-
-    for (size_t j = 0; j < assimpMesh->mNumFaces; j++) {
-      assert(assimpMesh->mFaces[j].mNumIndices == 3);
-      mesh.indices.push_back(assimpMesh->mFaces[j].mIndices[0]);
-      mesh.indices.push_back(assimpMesh->mFaces[j].mIndices[1]);
-      mesh.indices.push_back(assimpMesh->mFaces[j].mIndices[2]);
-    }
-  }
-
-  importer.FreeScene();
-  
-  Buffer vertexBuffer = utils::createBuffer(allocator, mesh.vertices.data(), sizeof(Vertex) * mesh.vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
-  Buffer indexBuffer = utils::createBuffer(allocator, mesh.indices.data(), sizeof(uint16_t) * mesh.indices.size(), vk::BufferUsageFlagBits::eIndexBuffer);
-
-  mesh.vertexBuffer = vertexBuffer;
-  mesh.indexBuffer = indexBuffer;
-
-  meshes.push_back(mesh);
-
-  deleteQueue.push_back([=]() {
-    vmaDestroyBuffer(allocator, mesh.vertexBuffer.buffer, mesh.vertexBuffer.allocation);
-    vmaDestroyBuffer(allocator, mesh.indexBuffer.buffer, mesh.indexBuffer.allocation);
-  });
-}
-
-void VkEngine::createGraphicsPipeline() {
-  vk::Device d = device.device;
-
-  vk::VertexInputBindingDescription vertexInputBindingDescription = vk::VertexInputBindingDescription{}
-    .setStride(sizeof(Vertex))
-    .setInputRate(vk::VertexInputRate::eVertex)
-    .setBinding(0);
-
-  vk::VertexInputAttributeDescription vertexPositionAttributeDescription = vk::VertexInputAttributeDescription{}
-    .setBinding(0)
-    .setLocation(0)
-    .setOffset(offsetof(Vertex, pos))
-    .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  vk::VertexInputAttributeDescription vertexColorAttributeDescription = vk::VertexInputAttributeDescription{}
-    .setBinding(0)
-    .setLocation(1)
-    .setOffset(offsetof(Vertex, clr))
-    .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  vk::VertexInputAttributeDescription vertexTextureCoordAttributeDescription = vk::VertexInputAttributeDescription{}
-    .setBinding(0)
-    .setLocation(2)
-    .setOffset(offsetof(Vertex, uv))
-    .setFormat(vk::Format::eR32G32Sfloat);
-
-  vk::PipelineShaderStageCreateInfo vertexShaderStage = vk::PipelineShaderStageCreateInfo{}
-    .setStage(vk::ShaderStageFlagBits::eVertex)
-    .setModule(vertexShader.module)
-    .setPName("main")
-    .setPSpecializationInfo(nullptr);
-
-  vk::PipelineShaderStageCreateInfo fragmentShaderStage = vk::PipelineShaderStageCreateInfo{}
-    .setStage(vk::ShaderStageFlagBits::eFragment)
-    .setModule(fragmentShader.module)
-    .setPName("main")
-    .setPSpecializationInfo(nullptr);
-  
-  vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
-  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
-
-  vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = vk::PipelineRenderingCreateInfo{}
-    .setColorAttachmentCount(1)
-    .setDepthAttachmentFormat(depthAttachmentFormat)
-    .setColorAttachmentFormats(colorAttachmentFormat);
-  
-  std::vector<vk::PipelineShaderStageCreateInfo> stages{
-    vertexShaderStage,
-    fragmentShaderStage,
-  };
-
-  std::vector<vk::VertexInputAttributeDescription> attributes{
-    vertexPositionAttributeDescription, 
-    vertexColorAttributeDescription, 
-    vertexTextureCoordAttributeDescription 
-  };
-  
-  vk::PipelineVertexInputStateCreateInfo vertexInputState = vk::PipelineVertexInputStateCreateInfo{}
-    .setVertexBindingDescriptions(vertexInputBindingDescription)
-    .setVertexBindingDescriptionCount(1)
-    .setVertexAttributeDescriptionCount(attributes.size())
-    .setVertexAttributeDescriptions(attributes);
-
-  vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState = vk::PipelineInputAssemblyStateCreateInfo{}
-    .setTopology(vk::PrimitiveTopology::eTriangleList)
-    .setPrimitiveRestartEnable(0);
-
-  vk::PipelineViewportStateCreateInfo viewportState = vk::PipelineViewportStateCreateInfo{}
-    .setScissors(scissors)
-    .setViewports(viewport)
-    .setViewportCount(1)
-    .setScissorCount(1);
-
-  vk::PipelineRasterizationStateCreateInfo rasterizationState = vk::PipelineRasterizationStateCreateInfo{}
-    .setRasterizerDiscardEnable(0)
-    .setDepthClampEnable(0)
-    .setDepthBiasEnable(0)
-    .setPolygonMode(vk::PolygonMode::eFill)
-    .setCullMode(vk::CullModeFlagBits::eBack)
-    .setFrontFace(vk::FrontFace::eCounterClockwise)
-    .setLineWidth(1.0f);
-
-  vk::PipelineMultisampleStateCreateInfo multisampleState = vk::PipelineMultisampleStateCreateInfo{}
-    .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-    .setSampleShadingEnable(0);
-
-  vk::PipelineDepthStencilStateCreateInfo depthStencilState = vk::PipelineDepthStencilStateCreateInfo{}
-    .setDepthTestEnable(1)
-    .setDepthWriteEnable(1)
-    .setStencilTestEnable(0)
-    .setDepthBoundsTestEnable(0)
-    .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
-
-  vk::PipelineColorBlendAttachmentState colorBlendAttachmentState = vk::PipelineColorBlendAttachmentState{}
-      .setBlendEnable(0)
-      .setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
-  
-  vk::PipelineColorBlendStateCreateInfo colorBlendState = vk::PipelineColorBlendStateCreateInfo{}
-    .setAttachmentCount(1)
-    .setAttachments(colorBlendAttachmentState);
-  
-  vk::DynamicState dynamicStates[2] = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-
-  vk::PipelineDynamicStateCreateInfo dynamicState = vk::PipelineDynamicStateCreateInfo{}
-    .setDynamicStates(dynamicStates)
-    .setDynamicStateCount(2);
-
-  vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo = vk::PipelineLayoutCreateInfo{}
-      .setSetLayouts(fragmentShader.descriptorSetLayout)
-      .setSetLayoutCount(1);
-
-  pipelineLayout = d.createPipelineLayout(pipelineLayoutCreateInfo, nullptr);
-  deleteQueue.push_back([&]() { vk::Device{device.device}.destroyPipelineLayout(pipelineLayout); });
-    
-  vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo = vk::GraphicsPipelineCreateInfo{}
-    .setPNext(&pipelineRenderingCreateInfo)
-    .setStages(stages)
-    .setStageCount(stages.size())
-    .setPVertexInputState(&vertexInputState)
-    .setPInputAssemblyState(&inputAssemblyState)
-    .setPTessellationState(VK_NULL_HANDLE)
-    .setPViewportState(&viewportState)
-    .setPRasterizationState(&rasterizationState)
-    .setPMultisampleState(&multisampleState)
-    .setPDepthStencilState(&depthStencilState)
-    .setPColorBlendState(&colorBlendState)
-    .setPDynamicState(&dynamicState)
-    .setRenderPass(VK_NULL_HANDLE)
-    .setLayout(pipelineLayout);
-
-  vk::ResultValue<vk::Pipeline> pipelineResult = d.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
-
-  if (pipelineResult.result != vk::Result::eSuccess) {
-    throw std::runtime_error{"Failed to create a pipeline"};
-  }
-
-  graphicsPipeline = pipelineResult.value;
-  deleteQueue.push_back([&]() { vk::Device{device.device}.destroyPipeline(graphicsPipeline); });
 };
+
+void VkEngine::createSampler() {
+  vk::SamplerCreateInfo samplerCreateInfo = vk::SamplerCreateInfo{}
+    .setMagFilter(vk::Filter::eLinear)
+    .setMinFilter(vk::Filter::eLinear)
+    .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+    .setAnisotropyEnable(0)
+    .setCompareEnable(0);
+
+  sampler = vk::Device{device}.createSampler(samplerCreateInfo);
+}
+
+void VkEngine::createDescriptorPool() {
+  vk::DescriptorPoolSize samplerPool = vk::DescriptorPoolSize{}
+    .setDescriptorCount(MAX_CONCURRENT_FRAMES * 64)
+    .setType(vk::DescriptorType::eCombinedImageSampler);
+
+  vk::DescriptorPoolSize uniformPool = vk::DescriptorPoolSize{}
+    .setDescriptorCount(MAX_CONCURRENT_FRAMES * 64)
+    .setType(vk::DescriptorType::eUniformBuffer);
+
+  std::vector<vk::DescriptorPoolSize> poolSizes{
+    samplerPool,
+    uniformPool
+  };
+
+  vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo = vk::DescriptorPoolCreateInfo{}
+    .setMaxSets(MAX_CONCURRENT_FRAMES)
+    .setPoolSizes(poolSizes)
+    .setPoolSizeCount(poolSizes.size());
+
+  descriptorPool = vk::Device{device}.createDescriptorPool(descriptorPoolCreateInfo, nullptr);
+}
+
+void VkEngine::setProjection(const Projection& p) {
+  projection = p;
+}
+
+void VkEngine::addObject(const Object& object) {
+  objects.push_back(object);
+}
+
+void VkEngine::loadMesh(const std::string_view path) {
+  meshes.push_back(Mesh{allocator, path});
+}
+
+void VkEngine::loadTexture(const std::string_view path) {
+  Image image{allocator, vk::Device{device}, commandPool, queue, path, vk::ImageLayout::eShaderReadOnlyOptimal};
+
+  textures.push_back(
+    Texture{
+      sampler,
+      vk::Device{device},
+      descriptorPool,
+      image,
+      MAX_CONCURRENT_FRAMES,
+      textureDescriptorSetLayout,
+    }
+  );
+}
