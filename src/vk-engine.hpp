@@ -34,11 +34,12 @@ public:
   void loadTexture(const std::string_view path);
 
   void drawFrame();
-  void processInput();
+  void processInput(float deltaTime);
   void destroy();
 private:
   Display display;
   Projection projection;
+  Camera camera;
 
   vkb::Instance instance;
   vk::SurfaceKHR surface;
@@ -62,7 +63,7 @@ private:
   std::vector<vk::Semaphore> presentCompleteSemaphores;
 
   vk::DescriptorPool descriptorPool;
-  vk::DescriptorSetLayout textureDescriptorSetLayout;
+  vk::DescriptorSetLayout textureSetLayout;
 
   vk::CommandPool commandPool;
   std::vector<vk::CommandBuffer> commadBuffers;

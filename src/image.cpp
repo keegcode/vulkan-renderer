@@ -45,7 +45,7 @@ Image::Image(const VmaAllocator& allocator, const vk::Device& device, const vk::
   view = device.createImageView(imageViewCreateInfo, nullptr);
 }
 
-Image::Image(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, const std::string_view path, vk::ImageLayout l): layout{l} {
+Image::Image(const VmaAllocator& allocator, const vk::Device& device, const vk::CommandPool& commandPool, const vk::Queue& transferQueue, const std::string_view path, vk::ImageLayout l) {
   int height, width;
 
   unsigned char* data = stbi_load(path.data(), reinterpret_cast<int*>(&width), reinterpret_cast<int*>(&height), nullptr, STBI_rgb_alpha);
@@ -97,7 +97,7 @@ Image::Image(const VmaAllocator& allocator, const vk::Device& device, const vk::
   
   transitionImageLayout(device, commandPool, transferQueue, vk::ImageLayout::eTransferDstOptimal);
   stagingBuffer.copyToImage(allocator, device, commandPool, transferQueue, image, data, extent);
-  transitionImageLayout(device, commandPool, transferQueue, layout);
+  transitionImageLayout(device, commandPool, transferQueue, l);
 
   stbi_image_free(data);
 };
@@ -131,6 +131,8 @@ void Image::transitionImageLayout(const vk::Device& device, const vk::CommandPoo
   commandBuffer.pipelineBarrier2(dependencyInfo);
 
   utils::endSingleSubmitCommand(device, commandPool, commandBuffer, transferQueue);
+
+  layout = newLayout;
 }
 
 void Image::destroy(const VmaAllocator& allocator, const vk::Device& device) {

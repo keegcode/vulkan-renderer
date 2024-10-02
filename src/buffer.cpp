@@ -23,7 +23,7 @@ Buffer::Buffer(const VmaAllocator& allocator, const void* data, const uint32_t s
   buffer = b;
 };
 
-Buffer::Buffer(const VmaAllocator& allocator, const uint32_t size, const vk::BufferUsageFlagBits usage) {
+Buffer::Buffer(const VmaAllocator& allocator, const uint32_t s, const vk::BufferUsageFlagBits usage): size{s} {
   VmaAllocationCreateInfo bufferAllocationCreateInfo{};
   bufferAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO; 
   bufferAllocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;

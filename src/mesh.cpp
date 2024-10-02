@@ -62,6 +62,8 @@ Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {
   
   vertexBuffer = Buffer{allocator, vertices.data(), static_cast<uint32_t>(sizeof(Vertex) * vertices.size()), vk::BufferUsageFlagBits::eVertexBuffer};
   indexBuffer = Buffer{allocator, indices.data(), static_cast<uint32_t>(sizeof(uint16_t) * indices.size()), vk::BufferUsageFlagBits::eIndexBuffer};
+
+  indicesCount = indices.size(); 
 }
 
 void Mesh::destroy(const VmaAllocator& allocator) {

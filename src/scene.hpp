@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glm/geometric.hpp>
 #include <glm/glm.hpp>
 
 struct Projection {
@@ -8,13 +9,24 @@ struct Projection {
   alignas(16) glm::mat4 perspective;
 };
 
+enum class CameraMode {
+  Fixed,
+  Move
+};
+
 struct Camera {
-  glm::vec3 pos = glm::vec3{0.0, 0.0, 0.0};
+  glm::vec3 pos = glm::vec3{0.0, 0.0, 1.0};
   glm::vec3 up = glm::vec3{0.0, 1.0, 0.0};
   glm::vec3 front = glm::vec3{0.0, 0.0, -1.0};
+  glm::vec3 right = glm::normalize(glm::cross(this->front, this->up));
 
-  float velocity = 2.0f;
-  float sensitivity = 0.5f;
+  float pitch = 0.0f;
+  float yaw = -90.0f;
+
+  CameraMode mode = CameraMode::Fixed;
+
+  float velocity = 0.1f;
+  float sensitivity = 0.1f;
 };
 
 struct Object {

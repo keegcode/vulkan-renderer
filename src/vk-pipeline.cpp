@@ -71,7 +71,7 @@ void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const
   vk::DescriptorSetAllocateInfo allocateInfo = vk::DescriptorSetAllocateInfo{}
     .setDescriptorPool(descriptorPool)
     .setDescriptorSetCount(swapchainImageCount)
-    .setSetLayouts(descriptorSetLayout);
+    .setSetLayouts(layouts);
 
   descriptorSets = device.allocateDescriptorSets(allocateInfo);
 

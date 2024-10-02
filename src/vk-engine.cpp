@@ -1,12 +1,20 @@
 #include "vk-engine.hpp"
 #include "VkBootstrap.h"
 #include "image.hpp"
+#include "scene.hpp"
 #include "vk-pipeline.hpp"
 #include "vk-utils.hpp"
 
+#include <SDL_events.h>
+#include <SDL_mouse.h>
 #include <SDL_video.h>
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/geometric.hpp>
+#include <glm/trigonometric.hpp>
+#include <iostream>
 #include <stdexcept>
 
 #include <assimp/Importer.hpp>      
@@ -24,10 +32,10 @@ void VkEngine::init(const Display& d) {
   createAllocator();
   createQueue();
   createSyncPrimitives();
-  createDescriptorPool();
   createCommandPool();
   createCommandBuffers();
   createSampler();
+  createDescriptorPool();
   createDepthImage();
   createViewportAndScissors();
   createPipeline();
@@ -190,23 +198,21 @@ void VkEngine::drawFrame() {
   commandBuffer.setScissor(0, 1, &scissors);
 
   for (const Pipeline& pipeline : pipelines) {
-    vk::DescriptorSet descriptorSet = pipeline.descriptorSets[frame];
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.graphicsPipeline);
 
-    vmaCopyMemoryToAllocation(allocator, &projection, pipeline.binding0.allocation, 0, sizeof(Projection));
-
-    std::vector<vk::Buffer> buffers{};
     vk::DeviceSize offsets[1] = {0};
 
     for (const Object& object : objects) {
       const Mesh& mesh = meshes[object.meshIdx];
       const Texture& texture = textures[object.textureIdx];
 
-      std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], descriptorSet};
-
+      std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], pipeline.descriptorSets[frame]};
+      
+      projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
+      vmaCopyMemoryToAllocation(allocator, &projection, pipeline.binding0.allocation, 0, sizeof(Projection));
       vmaCopyMemoryToAllocation(allocator, &object.pos, pipeline.binding1.allocation, 0, sizeof(glm::vec3));
 
-      commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 2, sets.data(), 0, nullptr);
+      commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, sets.size(), sets.data(), 0, nullptr);
       commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
       commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0, vk::IndexType::eUint16);
       commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
@@ -263,7 +269,7 @@ void VkEngine::drawFrame() {
   frame = (frame + 1) % MAX_CONCURRENT_FRAMES;
 };
 
-void VkEngine::processInput() {
+void VkEngine::processInput(float deltaTime) {
   SDL_Event event;
   while(SDL_PollEvent(&event)) {
     if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
@@ -276,6 +282,53 @@ void VkEngine::processInput() {
     }
     if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
       shouldBeResized = true;
+    }
+    if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_RIGHT) {
+      SDL_SetRelativeMouseMode(SDL_TRUE);
+      SDL_SetWindowGrab(display.window, SDL_TRUE);
+      camera.mode = CameraMode::Move; 
+    }
+    if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_RIGHT) {
+      SDL_SetRelativeMouseMode(SDL_FALSE);
+      SDL_SetWindowGrab(display.window, SDL_FALSE);
+      camera.mode = CameraMode::Fixed; 
+    }
+    if (event.type == SDL_KEYDOWN && camera.mode == CameraMode::Move) {
+      switch (event.key.keysym.sym) {
+        case SDLK_w:
+          camera.pos += camera.front * camera.velocity * deltaTime;
+          break;
+        case SDLK_s:
+          camera.pos -= camera.front * camera.velocity * deltaTime;
+          break;
+        case SDLK_a:
+          camera.pos -= camera.right * camera.velocity * deltaTime;
+          break;
+        case SDLK_d:
+          camera.pos += camera.right * camera.velocity * deltaTime;
+          break;
+        default:
+          break;
+      }
+    }
+    if (event.type == SDL_MOUSEMOTION && camera.mode == CameraMode::Move) {
+      camera.yaw += event.motion.xrel * camera.sensitivity;
+      camera.pitch += -event.motion.yrel * camera.sensitivity;
+
+      camera.pitch = std::clamp(camera.pitch, -90.0f, 90.0f);
+
+      std::cout << "yaw " << camera.yaw << " " << "pitch " << camera.pitch << std::endl;
+
+      glm::vec3 front{0.0f};
+
+      front.x = glm::cos(glm::radians(camera.yaw)) * glm::cos(glm::radians(camera.pitch));
+      front.y = glm::sin(glm::radians(camera.pitch));
+      front.z = glm::sin(glm::radians(camera.yaw)) * glm::cos(glm::radians(camera.pitch));
+
+      std::cout << "x " << front.x << " y " << front.y << " z " << front.z << std::endl;
+      
+      camera.front = glm::normalize(front);
+      camera.right = glm::normalize(glm::cross(camera.front, camera.up));
     }
   }
 };
@@ -469,13 +522,6 @@ void VkEngine::createCommandBuffers() {
 void VkEngine::createPipeline() {
   vk::Device d = vk::Device{device};
 
-  vk::DescriptorSetLayoutBinding samplerBinding = vk::DescriptorSetLayoutBinding{}
-    .setBinding(0)
-    .setDescriptorCount(1)
-    .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-    .setImmutableSamplers(sampler);
-
   vk::DescriptorSetLayoutBinding projectionBidning = vk::DescriptorSetLayoutBinding{}
     .setBinding(0)
     .setDescriptorCount(1)
@@ -494,12 +540,7 @@ void VkEngine::createPipeline() {
     .setBindings(uniformBindings)
     .setBindingCount(uniformBindings.size());
 
-  vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
-    .setBindings(samplerBinding)
-    .setBindingCount(1);
-
   vk::DescriptorSetLayout descriptorSetLayout = d.createDescriptorSetLayout(descriptorSetLayoutCreateInfo, nullptr);
-  vk::DescriptorSetLayout textureSetLayout = d.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
 
   Shader vertex{d, "./shaders/default.vert.spv"};
   Shader fragment{d, "./shaders/default.frag.spv"};
@@ -547,11 +588,26 @@ void VkEngine::createDescriptorPool() {
   };
 
   vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo = vk::DescriptorPoolCreateInfo{}
-    .setMaxSets(MAX_CONCURRENT_FRAMES)
+    .setMaxSets(MAX_CONCURRENT_FRAMES * 64)
     .setPoolSizes(poolSizes)
     .setPoolSizeCount(poolSizes.size());
 
   descriptorPool = vk::Device{device}.createDescriptorPool(descriptorPoolCreateInfo, nullptr);
+
+  vk::Device d = vk::Device{device};
+
+  vk::DescriptorSetLayoutBinding samplerBinding = vk::DescriptorSetLayoutBinding{}
+    .setBinding(0)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+    .setImmutableSamplers(sampler);
+
+  vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+    .setBindings(samplerBinding)
+    .setBindingCount(1);
+
+  textureSetLayout = d.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
 }
 
 void VkEngine::setProjection(const Projection& p) {
@@ -576,7 +632,7 @@ void VkEngine::loadTexture(const std::string_view path) {
       descriptorPool,
       image,
       MAX_CONCURRENT_FRAMES,
-      textureDescriptorSetLayout,
+      textureSetLayout,
     }
   );
 }

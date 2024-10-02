@@ -20,7 +20,7 @@ layout(set = 1, binding = 1) uniform Object {
 } object;
 
 void main() {
-  gl_Position = proj.perspective * ((proj.view * proj.model * vec4(inPosition, 1.0)) + vec4(object.pos, 0.0));
+  gl_Position = proj.perspective * (proj.view * (proj.model * vec4(inPosition, 1.0) + vec4(object.pos, 0.0)));
   outColor = inColor;
   outTexCoord = inTexCoord;
   outNormals = outNormals;
