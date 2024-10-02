@@ -9,6 +9,7 @@
 #include <SDL_mouse.h>
 #include <SDL_video.h>
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <glm/ext/matrix_transform.hpp>
@@ -67,7 +68,7 @@ void VkEngine::rebuiltSwapchain() {
   vkb::destroy_swapchain(old);
 }
 
-void VkEngine::drawFrame() {
+void VkEngine::drawFrame(float deltaTime) {
   vk::Device d = device.device;
 
   if (d.waitForFences(1, &fences[frame], 1, UINT64_MAX) != vk::Result::eSuccess) {
@@ -202,15 +203,18 @@ void VkEngine::drawFrame() {
 
     vk::DeviceSize offsets[1] = {0};
 
-    for (const Object& object : objects) {
+    for (Object& object : objects) {
       const Mesh& mesh = meshes[object.meshIdx];
       const Texture& texture = textures[object.textureIdx];
 
       std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], pipeline.descriptorSets[frame]};
       
       projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
+      
+      object.rotation = glm::rotate(object.rotation, glm::radians(0.1f) * deltaTime, glm::vec3{0.0f, 1.0f, 0.0f});
+
       vmaCopyMemoryToAllocation(allocator, &projection, pipeline.binding0.allocation, 0, sizeof(Projection));
-      vmaCopyMemoryToAllocation(allocator, &object.pos, pipeline.binding1.allocation, 0, sizeof(glm::vec3));
+      vmaCopyMemoryToAllocation(allocator, &object, pipeline.binding1.allocation, 0, sizeof(glm::mat4) * 2);
 
       commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, sets.size(), sets.data(), 0, nullptr);
       commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
@@ -317,15 +321,11 @@ void VkEngine::processInput(float deltaTime) {
 
       camera.pitch = std::clamp(camera.pitch, -90.0f, 90.0f);
 
-      std::cout << "yaw " << camera.yaw << " " << "pitch " << camera.pitch << std::endl;
-
       glm::vec3 front{0.0f};
 
       front.x = glm::cos(glm::radians(camera.yaw)) * glm::cos(glm::radians(camera.pitch));
       front.y = glm::sin(glm::radians(camera.pitch));
       front.z = glm::sin(glm::radians(camera.yaw)) * glm::cos(glm::radians(camera.pitch));
-
-      std::cout << "x " << front.x << " y " << front.y << " z " << front.z << std::endl;
       
       camera.front = glm::normalize(front);
       camera.right = glm::normalize(glm::cross(camera.front, camera.up));

@@ -33,7 +33,7 @@ public:
   void loadMesh(const std::string_view path);
   void loadTexture(const std::string_view path);
 
-  void drawFrame();
+  void drawFrame(float deltaTime);
   void processInput(float deltaTime);
   void destroy();
 private:

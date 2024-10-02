@@ -76,7 +76,7 @@ void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const
   descriptorSets = device.allocateDescriptorSets(allocateInfo);
 
   binding0 = Buffer{allocator, sizeof(Projection), vk::BufferUsageFlagBits::eUniformBuffer};
-  binding1 = Buffer{allocator, sizeof(glm::vec3), vk::BufferUsageFlagBits::eUniformBuffer};
+  binding1 = Buffer{allocator, sizeof(glm::mat4) * 2, vk::BufferUsageFlagBits::eUniformBuffer};
 
   for (size_t i = 0; i < descriptorSets.size(); i++) {
     vk::DescriptorBufferInfo projInfo = vk::DescriptorBufferInfo{}
@@ -86,7 +86,7 @@ void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const
 
     vk::DescriptorBufferInfo posInfo = vk::DescriptorBufferInfo{}
       .setBuffer(binding1.buffer)
-      .setRange(sizeof(glm::vec3))
+      .setRange(sizeof(glm::mat4) * 2)
       .setOffset(0);
     
     vk::WriteDescriptorSet projWrite = vk::WriteDescriptorSet{}

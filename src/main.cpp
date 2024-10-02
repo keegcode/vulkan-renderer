@@ -20,7 +20,7 @@ int main() {
   glm::mat4 perspective{1.0f};
   
   model = glm::rotate(model, glm::radians(30.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-  perspective = glm::perspective(glm::radians(80.0f), display.displayMode.w / (float) display.displayMode.h, 0.1f, 10.0f);
+  perspective = glm::perspective(glm::radians(60.0f), display.displayMode.w / (float) display.displayMode.h, 0.1f, 100.0f);
 
   perspective[1][1] *= -1;
 
@@ -37,8 +37,18 @@ int main() {
   engine.loadTexture("./textures/brick.jpg");
   engine.loadTexture("./textures/box.jpg");
 
-  engine.addObject(Object{glm::vec3{0.0,0.0,0.0},0,0});
-  engine.addObject(Object{glm::vec3{0.0,0.0,-3.0},1,0});
+  Object brick{};
+
+  brick.textureIdx = 0;
+  brick.meshIdx = 0;
+
+  Object box{};
+
+  brick.textureIdx = 1;
+  brick.meshIdx = 0;
+
+  engine.addObject(box);
+  engine.addObject(brick);
   
   float previousTicks = SDL_GetTicks();
   float deltaTime;
@@ -49,7 +59,7 @@ int main() {
     previousTicks = currentTicks;
 
     engine.processInput(deltaTime);
-    engine.drawFrame();
+    engine.drawFrame(deltaTime);
     
     SDL_Delay(2);
   }

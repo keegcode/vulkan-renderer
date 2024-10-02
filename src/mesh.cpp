@@ -38,9 +38,9 @@ Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {
       vertex.normals[1] = assimpMesh->mNormals[j].y;
       vertex.normals[2] = assimpMesh->mNormals[j].z;
 
-      vertex.clr[0] = 255.0f / (uint8_t) rand(); 
-      vertex.clr[1] = 255.0f / (uint8_t) rand(); 
-      vertex.clr[2] = 255.0f / (uint8_t) rand(); 
+      vertex.clr[0] = 0.4f;
+      vertex.clr[1] = 0.4f;
+      vertex.clr[2] = 0.4f;
 
       if (assimpMesh->HasTextureCoords(0)) {
         vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
