@@ -13,6 +13,7 @@
 #include "vk-pipeline.hpp"
 #include "sdl-display.hpp"
 #include "scene.hpp"
+#include "object.hpp"
 #include "mesh.hpp"
 #include "texture.hpp"
 
@@ -29,7 +30,7 @@ public:
   void init(const Display& d);
   
   void setProjection(const Projection& projection);
-  void addObject(const Object& object);
+  void addObject(const UniformBuffer& uniform, const uint32_t textureIdx, const uint32_t meshIdx, const uint32_t pipelineIdx);
   void loadMesh(const std::string_view path);
   void loadTexture(const std::string_view path);
 
@@ -64,6 +65,7 @@ private:
 
   vk::DescriptorPool descriptorPool;
   vk::DescriptorSetLayout textureSetLayout;
+  vk::DescriptorSetLayout objectSetLayout;
 
   vk::CommandPool commandPool;
   std::vector<vk::CommandBuffer> commadBuffers;
@@ -92,5 +94,5 @@ private:
   void createCommandPool();
   void createCommandBuffers();
   void createSampler();
-  void createPipeline();
+  void createPipelines();
 };

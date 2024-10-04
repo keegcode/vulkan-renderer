@@ -1,6 +1,7 @@
 #include "vk-engine.hpp"
 #include "VkBootstrap.h"
 #include "image.hpp"
+#include "object.hpp"
 #include "scene.hpp"
 #include "vk-pipeline.hpp"
 #include "vk-utils.hpp"
@@ -15,7 +16,6 @@
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/trigonometric.hpp>
-#include <iostream>
 #include <stdexcept>
 
 #include <assimp/Importer.hpp>      
@@ -39,7 +39,7 @@ void VkEngine::init(const Display& d) {
   createDescriptorPool();
   createDepthImage();
   createViewportAndScissors();
-  createPipeline();
+  createPipelines();
 };
   
 void VkEngine::destroySwapchainResources() {
@@ -198,29 +198,28 @@ void VkEngine::drawFrame(float deltaTime) {
   commandBuffer.setViewport(0, 1, &viewport);
   commandBuffer.setScissor(0, 1, &scissors);
 
-  for (const Pipeline& pipeline : pipelines) {
+  vk::DeviceSize offsets[1] = {0};
+
+  for (Object& object : objects) {
+    const Mesh& mesh = meshes[object.meshIdx];
+    const Texture& texture = textures[object.textureIdx];
+    const Pipeline& pipeline = pipelines[object.pipelineIdx];
+
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.graphicsPipeline);
 
-    vk::DeviceSize offsets[1] = {0};
+    std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], pipeline.descriptorSets[frame], object.descriptorSets[frame]};
+    
+    projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
+    
+    object.uniform.rotation = glm::rotate(object.uniform.rotation, glm::radians(0.1f) * deltaTime, glm::vec3{0.0f, 1.0f, 0.0f});
 
-    for (Object& object : objects) {
-      const Mesh& mesh = meshes[object.meshIdx];
-      const Texture& texture = textures[object.textureIdx];
+    vmaCopyMemoryToAllocation(allocator, &projection, pipeline.projection.allocation, 0, sizeof(Projection));
+    vmaCopyMemoryToAllocation(allocator, &object.uniform, object.ubo.allocation, 0, sizeof(UniformBuffer));
 
-      std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], pipeline.descriptorSets[frame]};
-      
-      projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
-      
-      object.rotation = glm::rotate(object.rotation, glm::radians(0.1f) * deltaTime, glm::vec3{0.0f, 1.0f, 0.0f});
-
-      vmaCopyMemoryToAllocation(allocator, &projection, pipeline.binding0.allocation, 0, sizeof(Projection));
-      vmaCopyMemoryToAllocation(allocator, &object, pipeline.binding1.allocation, 0, sizeof(glm::mat4) * 2);
-
-      commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, sets.size(), sets.data(), 0, nullptr);
-      commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
-      commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0, vk::IndexType::eUint16);
-      commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
-    }
+    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, sets.size(), sets.data(), 0, nullptr);
+    commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
+    commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0, vk::IndexType::eUint16);
+    commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
   }
 
   commandBuffer.endRendering();
@@ -519,7 +518,7 @@ void VkEngine::createCommandBuffers() {
 };
 
 
-void VkEngine::createPipeline() {
+void VkEngine::createPipelines() {
   vk::Device d = vk::Device{device};
 
   vk::DescriptorSetLayoutBinding projectionBidning = vk::DescriptorSetLayoutBinding{}
@@ -528,13 +527,7 @@ void VkEngine::createPipeline() {
     .setStageFlags(vk::ShaderStageFlagBits::eVertex)
     .setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
-  vk::DescriptorSetLayoutBinding objectBidning = vk::DescriptorSetLayoutBinding{}
-    .setBinding(1)
-    .setDescriptorCount(1)
-    .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  std::vector<vk::DescriptorSetLayoutBinding> uniformBindings = {projectionBidning, objectBidning};
+  std::vector<vk::DescriptorSetLayoutBinding> uniformBindings = {projectionBidning};
 
   vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
     .setBindings(uniformBindings)
@@ -542,21 +535,33 @@ void VkEngine::createPipeline() {
 
   vk::DescriptorSetLayout descriptorSetLayout = d.createDescriptorSetLayout(descriptorSetLayoutCreateInfo, nullptr);
 
-  Shader vertex{d, "./shaders/default.vert.spv"};
-  Shader fragment{d, "./shaders/default.frag.spv"};
+  pipelines.push_back(
+    Pipeline{
+      allocator,
+      Shader{d, "./shaders/default.vert.spv"},
+      Shader{d, "./shaders/default-solid.frag.spv"},
+      d,
+      viewport,
+      scissors,
+      MAX_CONCURRENT_FRAMES,
+      descriptorPool,
+      {textureSetLayout, descriptorSetLayout, objectSetLayout},
+    }
+  );
 
-  pipelines.push_back(Pipeline{
-    allocator,
-    vertex,
-    fragment,
-    d,
-    viewport,
-    scissors,
-    MAX_CONCURRENT_FRAMES,
-    descriptorPool,
-    descriptorSetLayout,
-    textureSetLayout
-  });
+  pipelines.push_back(
+    Pipeline{
+      allocator,
+      Shader{d, "./shaders/default.vert.spv"},
+      Shader{d, "./shaders/default.frag.spv"},
+      d,
+      viewport,
+      scissors,
+      MAX_CONCURRENT_FRAMES,
+      descriptorPool,
+      {textureSetLayout, descriptorSetLayout, objectSetLayout},
+    }
+  );
 };
 
 void VkEngine::createSampler() {
@@ -603,18 +608,42 @@ void VkEngine::createDescriptorPool() {
     .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
     .setImmutableSamplers(sampler);
 
+  vk::DescriptorSetLayoutBinding objectBidning = vk::DescriptorSetLayoutBinding{}
+    .setBinding(0)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
+
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
     .setBindings(samplerBinding)
     .setBindingCount(1);
 
+  vk::DescriptorSetLayoutCreateInfo objectSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+    .setBindings(objectBidning)
+    .setBindingCount(1);
+
   textureSetLayout = d.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
+  objectSetLayout = d.createDescriptorSetLayout(objectSetLayoutCreateInfo, nullptr);
 }
 
 void VkEngine::setProjection(const Projection& p) {
   projection = p;
 }
 
-void VkEngine::addObject(const Object& object) {
+void VkEngine::addObject(const UniformBuffer& uniform, const uint32_t textureIdx, const uint32_t meshIdx, const uint32_t pipelineIdx) {
+  Object object{
+    allocator,
+    vk::Device{device},
+    MAX_CONCURRENT_FRAMES,
+    descriptorPool,
+    objectSetLayout,
+  };
+  
+  object.uniform = uniform;
+  object.textureIdx = textureIdx;
+  object.meshIdx = meshIdx;
+  object.pipelineIdx = pipelineIdx;
+
   objects.push_back(object);
 }
 

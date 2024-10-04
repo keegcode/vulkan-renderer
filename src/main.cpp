@@ -1,13 +1,11 @@
-#include "scene.hpp"
-#include <SDL_timer.h>
-#include <glm/ext/matrix_clip_space.hpp>
-#include <glm/ext/matrix_transform.hpp>
-#include <glm/glm.hpp>
-
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include "vk_mem_alloc.h"
+
+#include <glm/glm.hpp>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
 
 #include "vk-engine.hpp"
 
@@ -33,22 +31,22 @@ int main() {
   engine.init(display);
   
   engine.loadMesh("./assets/cube.obj");
+  engine.loadMesh("./assets/suzanne.obj");
 
+  engine.loadTexture("./textures/default.jpg");
   engine.loadTexture("./textures/brick.jpg");
   engine.loadTexture("./textures/box.jpg");
 
-  Object brick{};
+  UniformBuffer obj1{};
+  
+  obj1.translation = glm::translate(obj1.translation, glm::vec3{2.0, 0.0, 0.0});
 
-  brick.textureIdx = 0;
-  brick.meshIdx = 0;
+  UniformBuffer obj2{};
 
-  Object box{};
+  obj2.translation = glm::translate(obj2.translation, glm::vec3{-2.0, 0.0, 0.0});
 
-  brick.textureIdx = 1;
-  brick.meshIdx = 0;
-
-  engine.addObject(box);
-  engine.addObject(brick);
+  engine.addObject(obj1, 0, 0, 0);
+  engine.addObject(obj2, 1, 1, 1);
   
   float previousTicks = SDL_GetTicks();
   float deltaTime;

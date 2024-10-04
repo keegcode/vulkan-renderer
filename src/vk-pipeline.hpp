@@ -11,13 +11,10 @@ public:
   vk::Pipeline graphicsPipeline;
   vk::PipelineLayout pipelineLayout;
 
-  Buffer binding0;
-  Buffer binding1;
-
-  vk::DescriptorSetLayout descriptorSetLayout;
-  vk::DescriptorSetLayout textureSetLayout;
+  Buffer projection;
 
   std::vector<vk::DescriptorSet> descriptorSets;
+  std::vector<vk::DescriptorSetLayout> descriptorSetLayouts;
 
   std::vector<vk::VertexInputBindingDescription> inputBindings;
   std::vector<vk::VertexInputAttributeDescription> inputAttributes;
@@ -36,13 +33,12 @@ public:
     const vk::Rect2D& scissors, 
     const uint32_t swapchainImageCount,
     const vk::DescriptorPool& descriptorPool,
-    const vk::DescriptorSetLayout& descriptorSetLayout,
-    const vk::DescriptorSetLayout& textureSetLayout
+    const std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts
   );
 
   void destroy(const vk::Device& device);
 private:
   void createVertexInputState();
-  void createDescriptors(const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout, const VmaAllocator& allocator, const vk::Device& device);
+  void createDescriptors(const vk::DescriptorPool& descriptorPool, const VmaAllocator& allocator, const vk::Device& device);
   void createPipeline(const vk::Device& device);
 };

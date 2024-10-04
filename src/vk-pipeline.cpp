@@ -17,11 +17,10 @@ Pipeline::Pipeline(
   const vk::Rect2D& s, 
   const uint32_t swapImgCount,
   const vk::DescriptorPool& descriporPool,
-  const vk::DescriptorSetLayout& descSetLayout,
-  const vk::DescriptorSetLayout& texSetLayout
-): vertexShader{vert}, fragmentShader{frag}, descriptorSetLayout{descSetLayout}, textureSetLayout{texSetLayout}, swapchainImageCount{swapImgCount}, viewport{v}, scissors{s} {
+  const std::vector<vk::DescriptorSetLayout>& descSetLayouts
+): vertexShader{vert}, fragmentShader{frag}, descriptorSetLayouts{descSetLayouts}, swapchainImageCount{swapImgCount}, viewport{v}, scissors{s} {
   createVertexInputState();
-  createDescriptors(descriporPool, descriptorSetLayout, allocator, device);
+  createDescriptors(descriporPool, allocator, device);
   createPipeline(device);
 };
 
@@ -65,8 +64,8 @@ void Pipeline::createVertexInputState() {
   };
 }
 
-void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout, const VmaAllocator& allocator, const vk::Device& device) {
-  std::vector<vk::DescriptorSetLayout> layouts(swapchainImageCount, descriptorSetLayout);
+void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const VmaAllocator& allocator, const vk::Device& device) {
+  std::vector<vk::DescriptorSetLayout> layouts(swapchainImageCount, descriptorSetLayouts[1]);
 
   vk::DescriptorSetAllocateInfo allocateInfo = vk::DescriptorSetAllocateInfo{}
     .setDescriptorPool(descriptorPool)
@@ -75,20 +74,14 @@ void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const
 
   descriptorSets = device.allocateDescriptorSets(allocateInfo);
 
-  binding0 = Buffer{allocator, sizeof(Projection), vk::BufferUsageFlagBits::eUniformBuffer};
-  binding1 = Buffer{allocator, sizeof(glm::mat4) * 2, vk::BufferUsageFlagBits::eUniformBuffer};
+  projection = Buffer{allocator, sizeof(Projection), vk::BufferUsageFlagBits::eUniformBuffer};
 
   for (size_t i = 0; i < descriptorSets.size(); i++) {
     vk::DescriptorBufferInfo projInfo = vk::DescriptorBufferInfo{}
-      .setBuffer(binding0.buffer)
+      .setBuffer(projection.buffer)
       .setRange(sizeof(Projection))
       .setOffset(0);
 
-    vk::DescriptorBufferInfo posInfo = vk::DescriptorBufferInfo{}
-      .setBuffer(binding1.buffer)
-      .setRange(sizeof(glm::mat4) * 2)
-      .setOffset(0);
-    
     vk::WriteDescriptorSet projWrite = vk::WriteDescriptorSet{}
       .setDstSet(descriptorSets[i])
       .setDstBinding(0)
@@ -97,17 +90,8 @@ void Pipeline::createDescriptors(const vk::DescriptorPool& descriptorPool, const
       .setDescriptorType(vk::DescriptorType::eUniformBuffer)
       .setBufferInfo(projInfo);
 
-    vk::WriteDescriptorSet posWrite = vk::WriteDescriptorSet{}
-      .setDstSet(descriptorSets[i])
-      .setDstBinding(1)
-      .setDstArrayElement(0)
-      .setDescriptorCount(1)
-      .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-      .setBufferInfo(posInfo);
-
     std::vector<vk::WriteDescriptorSet> writes{
       projWrite,
-      posWrite
     };
 
     device.updateDescriptorSets(writes.size(), writes.data(), 0, nullptr);
@@ -190,11 +174,9 @@ void Pipeline::createPipeline(const vk::Device& device) {
     .setDynamicStates(dynamicStates)
     .setDynamicStateCount(2);
 
-  std::vector<vk::DescriptorSetLayout> setLayouts = {textureSetLayout, descriptorSetLayout};
-
   vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo = vk::PipelineLayoutCreateInfo{}
-      .setSetLayouts(setLayouts)
-      .setSetLayoutCount(setLayouts.size());
+      .setSetLayouts(descriptorSetLayouts)
+      .setSetLayoutCount(descriptorSetLayouts.size());
 
   pipelineLayout = device.createPipelineLayout(pipelineLayoutCreateInfo, nullptr);
     

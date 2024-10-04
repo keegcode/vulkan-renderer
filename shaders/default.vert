@@ -15,13 +15,14 @@ layout(set = 1, binding = 0) uniform Projection {
   mat4 perspective;
 } proj;
 
-layout(set = 1, binding = 1) uniform Object {
+layout(set = 2, binding = 0) uniform Object {
   mat4 translation;
   mat4 rotation;
+  mat4 scale;
 } object;
 
 void main() {
-  gl_Position = proj.perspective * (proj.view * (object.translation * object.rotation * proj.model * vec4(inPosition, 1.0)));
+  gl_Position = proj.perspective * (proj.view * (object.translation * object.rotation * object.scale * proj.model * vec4(inPosition, 1.0)));
   outColor = inColor;
   outTexCoord = inTexCoord;
   outNormals = outNormals;
