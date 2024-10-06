@@ -7,9 +7,8 @@
 #include <vulkan/vulkan.hpp>
 #include <glm/glm.hpp>
 #include <VkBootstrap.h>
-#include <deque>
-#include <functional>
 
+#include "light.hpp"
 #include "vk-pipeline.hpp"
 #include "sdl-display.hpp"
 #include "scene.hpp"
@@ -30,7 +29,8 @@ public:
   void init(const Display& d);
   
   void setProjection(const Projection& projection);
-  void addObject(const UniformBuffer& uniform, const uint32_t textureIdx, const uint32_t meshIdx, const uint32_t pipelineIdx);
+  void setLight(const glm::vec3& pos, const glm::vec3 color, const float ambient);
+  void addObject(const UniformBuffer& uniform, const uint32_t meshIdx, const uint32_t textureIdx, const uint32_t pipelineIdx);
   void loadMesh(const std::string_view path);
   void loadTexture(const std::string_view path);
 
@@ -40,6 +40,7 @@ public:
 private:
   Display display;
   Projection projection;
+  Light light;
   Camera camera;
 
   vkb::Instance instance;
@@ -57,15 +58,17 @@ private:
   Image depthImage;
 
   VmaAllocator allocator;
-  std::deque<std::function<void()>> deleteQueue;
 
   std::vector<vk::Fence> fences;
   std::vector<vk::Semaphore> renderCompleteSemaphores;
   std::vector<vk::Semaphore> presentCompleteSemaphores;
 
   vk::DescriptorPool descriptorPool;
+
+  vk::DescriptorSetLayout descriptorSetLayout;
   vk::DescriptorSetLayout textureSetLayout;
   vk::DescriptorSetLayout objectSetLayout;
+  vk::DescriptorSetLayout lightSetLayout;
 
   vk::CommandPool commandPool;
   std::vector<vk::CommandBuffer> commadBuffers;

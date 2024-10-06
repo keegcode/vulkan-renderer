@@ -7,7 +7,8 @@ layout(location = 3) in vec3 inNormals;
 
 layout(location = 0) out vec3 outColor;
 layout(location = 1) out vec2 outTexCoord;
-layout(location = 2) out vec3 outNormals;
+layout(location = 2) out vec3 outFragPos;
+layout(location = 3) out vec3 outNormals;
 
 layout(set = 1, binding = 0) uniform Projection {
   mat4 model;
@@ -23,8 +24,13 @@ layout(set = 2, binding = 0) uniform Object {
 } object;
 
 void main() {
-  gl_Position = proj.perspective * (proj.view * (object.translation * object.rotation * object.scale * proj.model * vec4(inPosition, 1.0)));
-  outColor = object.color;
+  vec3 pos = (object.translation * object.rotation * object.scale * proj.model * vec4(inPosition, 1.0)).xyz;
+  vec3 normal = normalize((object.rotation * proj.model * vec4(inNormals, 1.0))).xyz;
+
   outTexCoord = inTexCoord;
-  outNormals = outNormals;
+  outColor = object.color;
+  outNormals = normal;
+  outFragPos = pos;
+
+  gl_Position = proj.perspective * proj.view * vec4(pos, 1.0);
 }

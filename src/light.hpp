@@ -6,29 +6,24 @@
 #include "buffer.hpp"
 #include "vk_mem_alloc.h"
 
-struct UniformBuffer {
-  alignas(16) glm::mat4 translation = glm::mat4{1.0f};
-  alignas(16) glm::mat4 rotation = glm::mat4{1.0f};
-  alignas(16) glm::mat4 scale = glm::mat4{1.0};
-  alignas(16) glm::vec3 color = glm::vec3{0.5};
+struct LightProperties {
+  alignas(16) glm::vec3 pos;
+  alignas(16) glm::vec3 color;
+  alignas(4) float ambient;
 };
 
-class Object {
+class Light {
 public:
-  UniformBuffer uniform;
-
-  uint32_t textureIdx = 0;
-  uint32_t meshIdx = 0;
-  uint32_t pipelineIdx = 0;
+  LightProperties properties;
 
   Buffer ubo;
 
   vk::DescriptorSetLayout descriptorSetLayout;
   std::vector<vk::DescriptorSet> descriptorSets;
 
-  Object();
+  Light();
 
-  Object(
+  Light(
     const VmaAllocator& allocator,
     const vk::Device& device, 
     const uint32_t swapchainImageCount,

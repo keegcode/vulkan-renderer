@@ -69,8 +69,8 @@ void Buffer::copyToImage(const VmaAllocator& allocator, const vk::Device& device
   commandBuffer.copyBufferToImage2(copyInfo);
 
   utils::endSingleSubmitCommand(device, commandPool, commandBuffer, transferQueue);
-
-  vmaDestroyBuffer(allocator, stagingBuffer.buffer, stagingBuffer.allocation);
+  
+  stagingBuffer.destroy(allocator);
 };
 
 void Buffer::destroy(const VmaAllocator& allocator) {

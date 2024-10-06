@@ -1,6 +1,7 @@
 #include "vk-engine.hpp"
 #include "VkBootstrap.h"
 #include "image.hpp"
+#include "light.hpp"
 #include "object.hpp"
 #include "scene.hpp"
 #include "vk-pipeline.hpp"
@@ -207,14 +208,13 @@ void VkEngine::drawFrame(float deltaTime) {
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.graphicsPipeline);
 
-    std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], pipeline.descriptorSets[frame], object.descriptorSets[frame]};
+    std::vector<vk::DescriptorSet> sets{texture.descriptorSets[frame], pipeline.descriptorSets[frame], object.descriptorSets[frame], light.descriptorSets[frame]};
     
     projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
-    
-    object.uniform.rotation = glm::rotate(object.uniform.rotation, glm::radians(0.1f) * deltaTime, glm::vec3{0.0f, 1.0f, 0.0f});
 
     vmaCopyMemoryToAllocation(allocator, &projection, pipeline.projection.allocation, 0, sizeof(Projection));
     vmaCopyMemoryToAllocation(allocator, &object.uniform, object.ubo.allocation, 0, sizeof(UniformBuffer));
+    vmaCopyMemoryToAllocation(allocator, &light.properties, light.ubo.allocation, 0, sizeof(LightProperties));
 
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, sets.size(), sets.data(), 0, nullptr);
     commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
@@ -336,16 +336,48 @@ void VkEngine::destroy() {
   vk::Device d = device.device;
 
   d.waitIdle();
-    
-  while (!deleteQueue.empty()) {
-    deleteQueue.back()();
-    deleteQueue.pop_back();
+
+  for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
+    d.destroyFence(fences[i]);
+    d.destroySemaphore(renderCompleteSemaphores[i]);
+    d.destroySemaphore(presentCompleteSemaphores[i]);
   }
+
+  for (Object& object : objects) {
+    object.destroy(allocator);
+  }
+
+  for (Texture& texture : textures) {
+    texture.destroy(allocator, d);
+  }
+
+  for (Mesh& mesh : meshes) {
+    mesh.destroy(allocator);
+  }
+
+  for (Pipeline& pipeline : pipelines) {
+    pipeline.destroy(allocator, d);
+  }
+
+  light.destroy(allocator);
   
   destroySwapchainResources();
+
+  d.destroySampler(sampler);
+  d.destroyCommandPool(commandPool);
+
+  d.destroyDescriptorSetLayout(objectSetLayout);
+  d.destroyDescriptorSetLayout(textureSetLayout);
+  d.destroyDescriptorSetLayout(descriptorSetLayout);
+  d.destroyDescriptorSetLayout(lightSetLayout);
+
+  d.destroyDescriptorPool(descriptorPool);
+
   vkb::destroy_swapchain(swapchain);
   vkb::destroy_surface(instance, surface);
+
   vmaDestroyAllocator(allocator);
+
   vkb::destroy_device(device);
   vkb::destroy_instance(instance);
 };
@@ -482,14 +514,6 @@ void VkEngine::createSyncPrimitives() {
     renderCompleteSemaphores[i] = d.createSemaphore(vk::SemaphoreCreateInfo{});
     presentCompleteSemaphores[i] = d.createSemaphore(vk::SemaphoreCreateInfo{});
   }
-
-  deleteQueue.push_back([&](){
-    for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-      vk::Device{device}.destroyFence(fences[i]);
-      vk::Device{device}.destroySemaphore(renderCompleteSemaphores[i]);
-      vk::Device{device}.destroySemaphore(presentCompleteSemaphores[i]);
-    }
-  });
 };
 
 void VkEngine::createCommandPool() {
@@ -500,7 +524,6 @@ void VkEngine::createCommandPool() {
   vk::Device d = device.device;
 
   commandPool = d.createCommandPool(commandPoolCreateInfo, nullptr);
-  deleteQueue.push_back([&]() { vk::Device{device.device}.destroyCommandPool(commandPool); });
 };
 
 void VkEngine::createCommandBuffers() {
@@ -521,20 +544,6 @@ void VkEngine::createCommandBuffers() {
 void VkEngine::createPipelines() {
   vk::Device d = vk::Device{device};
 
-  vk::DescriptorSetLayoutBinding projectionBidning = vk::DescriptorSetLayoutBinding{}
-    .setBinding(0)
-    .setDescriptorCount(1)
-    .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  std::vector<vk::DescriptorSetLayoutBinding> uniformBindings = {projectionBidning};
-
-  vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
-    .setBindings(uniformBindings)
-    .setBindingCount(uniformBindings.size());
-
-  vk::DescriptorSetLayout descriptorSetLayout = d.createDescriptorSetLayout(descriptorSetLayoutCreateInfo, nullptr);
-
   pipelines.push_back(
     Pipeline{
       allocator,
@@ -545,7 +554,7 @@ void VkEngine::createPipelines() {
       scissors,
       MAX_CONCURRENT_FRAMES,
       descriptorPool,
-      {textureSetLayout, descriptorSetLayout, objectSetLayout},
+      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
     }
   );
 
@@ -559,7 +568,35 @@ void VkEngine::createPipelines() {
       scissors,
       MAX_CONCURRENT_FRAMES,
       descriptorPool,
-      {textureSetLayout, descriptorSetLayout, objectSetLayout},
+      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
+    }
+  );
+
+  pipelines.push_back(
+    Pipeline{
+      allocator,
+      Shader{d, "./shaders/phong-light.vert.spv"},
+      Shader{d, "./shaders/phong-light-solid.frag.spv"},
+      d,
+      viewport,
+      scissors,
+      MAX_CONCURRENT_FRAMES,
+      descriptorPool,
+      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
+    }
+  );
+
+  pipelines.push_back(
+    Pipeline{
+      allocator,
+      Shader{d, "./shaders/phong-light.vert.spv"},
+      Shader{d, "./shaders/phong-light.frag.spv"},
+      d,
+      viewport,
+      scissors,
+      MAX_CONCURRENT_FRAMES,
+      descriptorPool,
+      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
     }
   );
 };
@@ -604,14 +641,26 @@ void VkEngine::createDescriptorPool() {
   vk::DescriptorSetLayoutBinding samplerBinding = vk::DescriptorSetLayoutBinding{}
     .setBinding(0)
     .setDescriptorCount(1)
-    .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+    .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
     .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
     .setImmutableSamplers(sampler);
+
+  vk::DescriptorSetLayoutBinding projectionBidning = vk::DescriptorSetLayoutBinding{}
+    .setBinding(0)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
+    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
   vk::DescriptorSetLayoutBinding objectBidning = vk::DescriptorSetLayoutBinding{}
     .setBinding(0)
     .setDescriptorCount(1)
-    .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+    .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
+    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
+
+  vk::DescriptorSetLayoutBinding lightBinding = vk::DescriptorSetLayoutBinding{}
+    .setBinding(0)
+    .setDescriptorCount(1)
+    .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
     .setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
@@ -622,15 +671,49 @@ void VkEngine::createDescriptorPool() {
     .setBindings(objectBidning)
     .setBindingCount(1);
 
+  vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+    .setBindings(lightBinding)
+    .setBindingCount(1);
+
+  vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+    .setBindings(projectionBidning)
+    .setBindingCount(1);
+
   textureSetLayout = d.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
+  descriptorSetLayout = d.createDescriptorSetLayout(descriptorSetLayoutCreateInfo, nullptr);
   objectSetLayout = d.createDescriptorSetLayout(objectSetLayoutCreateInfo, nullptr);
+  lightSetLayout = d.createDescriptorSetLayout(lightSetLayoutCreateInfo, nullptr);
 }
 
 void VkEngine::setProjection(const Projection& p) {
   projection = p;
 }
 
-void VkEngine::addObject(const UniformBuffer& uniform, const uint32_t textureIdx, const uint32_t meshIdx, const uint32_t pipelineIdx) {
+void VkEngine::setLight(const glm::vec3& pos, const glm::vec3 color, const float ambient) {
+  Light l{
+    allocator,
+    vk::Device{device},
+    MAX_CONCURRENT_FRAMES,
+    descriptorPool,
+    objectSetLayout,
+  };
+  
+  l.properties.pos = pos;
+  l.properties.color = color;
+  l.properties.ambient = ambient;
+
+  UniformBuffer ubo{};
+
+  ubo.translation = glm::translate(ubo.translation, pos);
+  ubo.color = glm::vec3{1.0};
+  ubo.scale = glm::scale(ubo.scale, glm::vec3{0.5});
+
+  addObject(ubo, 0, 0, 0);
+  
+  light = l;
+}
+
+void VkEngine::addObject(const UniformBuffer& uniform, const uint32_t meshIdx, const uint32_t textureIdx, const uint32_t pipelineIdx) {
   Object object{
     allocator,
     vk::Device{device},

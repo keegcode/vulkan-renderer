@@ -1,13 +1,13 @@
-#include "object.hpp"
+#include "light.hpp"
 
-Object::Object() {
+Light::Light() {
 }
 
-Object::Object(const VmaAllocator& allocator, const vk::Device& device, const uint32_t swapchainImageCount, const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout) {
+Light::Light(const VmaAllocator& allocator, const vk::Device& device, const uint32_t swapchainImageCount, const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout) {
   createDescriptors(descriptorPool, descriptorSetLayout, allocator, device, swapchainImageCount);
 }
 
-void Object::createDescriptors(const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout, const VmaAllocator& allocator, const vk::Device& device, const uint32_t swapchainImageCount) {
+void Light::createDescriptors(const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout, const VmaAllocator& allocator, const vk::Device& device, const uint32_t swapchainImageCount) {
   std::vector<vk::DescriptorSetLayout> layouts(swapchainImageCount, descriptorSetLayout);
 
   vk::DescriptorSetAllocateInfo allocateInfo = vk::DescriptorSetAllocateInfo{}
@@ -17,12 +17,12 @@ void Object::createDescriptors(const vk::DescriptorPool& descriptorPool, const v
 
   descriptorSets = device.allocateDescriptorSets(allocateInfo);
 
-  ubo = Buffer{allocator, sizeof(UniformBuffer), vk::BufferUsageFlagBits::eUniformBuffer};
+  ubo = Buffer{allocator, sizeof(LightProperties), vk::BufferUsageFlagBits::eUniformBuffer};
 
   for (size_t i = 0; i < descriptorSets.size(); i++) {
     vk::DescriptorBufferInfo uboInfo = vk::DescriptorBufferInfo{}
       .setBuffer(ubo.buffer)
-      .setRange(sizeof(UniformBuffer))
+      .setRange(sizeof(LightProperties))
       .setOffset(0);
     
     vk::WriteDescriptorSet uboWrite = vk::WriteDescriptorSet{}
@@ -41,6 +41,6 @@ void Object::createDescriptors(const vk::DescriptorPool& descriptorPool, const v
   }
 }
 
-void Object::destroy(const VmaAllocator& allocator) {
+void Light::destroy(const VmaAllocator& allocator) {
   ubo.destroy(allocator);
 }

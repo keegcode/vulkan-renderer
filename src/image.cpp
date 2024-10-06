@@ -98,7 +98,8 @@ Image::Image(const VmaAllocator& allocator, const vk::Device& device, const vk::
   transitionImageLayout(device, commandPool, transferQueue, vk::ImageLayout::eTransferDstOptimal);
   stagingBuffer.copyToImage(allocator, device, commandPool, transferQueue, image, data, extent);
   transitionImageLayout(device, commandPool, transferQueue, l);
-
+  
+  stagingBuffer.destroy(allocator);
   stbi_image_free(data);
 };
 

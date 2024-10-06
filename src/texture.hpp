@@ -11,7 +11,7 @@ public:
 
   Texture(const vk::Sampler& sampler, const vk::Device& device, const vk::DescriptorPool& descriptorPool, const Image& image, const uint32_t swapchainImageCount, const vk::DescriptorSetLayout& textureDescriptorSetLayout);
   
-  void destroy(const vk::DescriptorPool& descriptorPool, const vk::Device& device);
+  void destroy(const VmaAllocator& allocator, const vk::Device& device);
 private:
   void createSampler();
 };

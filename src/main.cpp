@@ -1,3 +1,4 @@
+#include "light.hpp"
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -17,7 +18,6 @@ int main() {
   glm::mat4 view{1.0f};
   glm::mat4 perspective{1.0f};
   
-  model = glm::rotate(model, glm::radians(30.0f), glm::vec3(0.0f, 1.0f, 0.0f));
   perspective = glm::perspective(glm::radians(60.0f), display.displayMode.w / (float) display.displayMode.h, 0.1f, 100.0f);
 
   perspective[1][1] *= -1;
@@ -34,19 +34,14 @@ int main() {
   engine.loadMesh("./assets/suzanne.obj");
 
   engine.loadTexture("./textures/default.jpg");
-  engine.loadTexture("./textures/brick.jpg");
-  engine.loadTexture("./textures/box.jpg");
 
   UniformBuffer obj1{};
-  
-  obj1.translation = glm::translate(obj1.translation, glm::vec3{2.0, 0.0, 0.0});
+  obj1.translation = glm::translate(obj1.translation, glm::vec3{0.0, 0.0, -10.0});
+  obj1.scale = glm::scale(obj1.scale, glm::vec3{2.5});
 
-  UniformBuffer obj2{};
+  engine.addObject(obj1, 1, 0, 2);
 
-  obj2.translation = glm::translate(obj2.translation, glm::vec3{-2.0, 0.0, 0.0});
-
-  engine.addObject(obj1, 0, 0, 0);
-  engine.addObject(obj2, 1, 1, 1);
+  engine.setLight(glm::vec3{0.0, 0.0, 0.0}, glm::vec3{1.0}, 0.03);
   
   float previousTicks = SDL_GetTicks();
   float deltaTime;
@@ -58,8 +53,8 @@ int main() {
 
     engine.processInput(deltaTime);
     engine.drawFrame(deltaTime);
-    
-    SDL_Delay(2);
+
+    SDL_Delay(1);
   }
 
   engine.destroy();

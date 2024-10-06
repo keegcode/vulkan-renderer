@@ -36,7 +36,7 @@ public:
     const std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts
   );
 
-  void destroy(const vk::Device& device);
+  void destroy(const VmaAllocator& allocator, const vk::Device& device);
 private:
   void createVertexInputState();
   void createDescriptors(const vk::DescriptorPool& descriptorPool, const VmaAllocator& allocator, const vk::Device& device);

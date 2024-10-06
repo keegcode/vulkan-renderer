@@ -1,4 +1,5 @@
 #include "texture.hpp"
+#include "image.hpp"
 
 Texture::Texture(
   const vk::Sampler& sampler, 
@@ -39,7 +40,7 @@ Texture::Texture(
   }
 }
 
-void Texture::destroy(const vk::DescriptorPool& descriptorPool, const vk::Device& device) {
-  device.freeDescriptorSets(descriptorPool, descriptorSets);
+void Texture::destroy(const VmaAllocator& allocator, const vk::Device& device) {
+  image.destroy(allocator, device);
 }
 

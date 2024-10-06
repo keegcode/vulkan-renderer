@@ -204,3 +204,11 @@ void Pipeline::createPipeline(const vk::Device& device) {
 
   graphicsPipeline = pipelineResult.value;
 }
+
+void Pipeline::destroy(const VmaAllocator& allocator, const vk::Device& device) {
+  device.destroyPipelineLayout(pipelineLayout);
+  device.destroyPipeline(graphicsPipeline);
+  vertexShader.destroy(device);
+  fragmentShader.destroy(device);
+  projection.destroy(allocator);
+}
