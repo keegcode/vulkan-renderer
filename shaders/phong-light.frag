@@ -13,13 +13,24 @@ layout(set = 3, binding = 0) uniform Light {
   float ambient;
 } light;
 
+layout(set = 1, binding = 0) uniform Projection {
+  mat4 model;
+  mat4 view;
+  mat4 perspective;
+} proj;
+
 layout(set = 0, binding = 0) uniform sampler2D tex0;
 
 void main() {
   vec3 normal = normalize(inNormals);
-  vec3 direction = normalize(light.pos - inFragPos);
-  vec3 diffuse = max(dot(direction, normal), 0.0) * light.color;
-  vec3 ambient = light.color * light.ambient;
+
+  vec3 direction = normalize((proj.view * vec4(light.pos, 1.0)).xyz - inFragPos);
+  float diffuse = max(dot(direction, normal), 0.0);
   
-  outColor = vec4((diffuse + ambient), 1.0) * texture(tex0, inTexCoord);
-}
+  vec3 view = normalize(-inFragPos);
+  vec3 reflection = reflect(-direction, normal);  
+
+  float specular = pow(max(dot(view, reflection), 0.0), 32) * 0.5;
+  
+  outColor = vec4(texture(tex0, inTexCoord).xyz * light.color * (diffuse + light.ambient + specular), 1.0);
+} 

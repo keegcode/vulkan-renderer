@@ -24,13 +24,13 @@ layout(set = 2, binding = 0) uniform Object {
 } object;
 
 void main() {
-  vec3 pos = (object.translation * object.rotation * object.scale * proj.model * vec4(inPosition, 1.0)).xyz;
-  vec3 normal = normalize((object.rotation * proj.model * vec4(inNormals, 1.0))).xyz;
+  vec3 pos = (proj.view * object.translation * object.rotation * object.scale * proj.model * vec4(inPosition, 1.0)).xyz;
+  vec3 normal = normalize((proj.view * object.rotation * proj.model * vec4(inNormals, 0.0))).xyz;
 
   outTexCoord = inTexCoord;
   outColor = object.color;
   outNormals = normal;
   outFragPos = pos;
 
-  gl_Position = proj.perspective * proj.view * vec4(pos, 1.0);
+  gl_Position = proj.perspective * vec4(pos, 1.0);
 }
