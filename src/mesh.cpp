@@ -1,31 +1,28 @@
 #include "mesh.hpp"
 #include "buffer.hpp"
 
-#include <assimp/Importer.hpp>      
-#include <assimp/scene.h>           
-#include <assimp/postprocess.h>  
+#include <assimp/Importer.hpp>
+#include <assimp/postprocess.h>
+#include <assimp/scene.h>
 #include <cstdint>
 
-Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {
+Mesh::Mesh(const VmaAllocator &allocator, const std::string_view path) {
   Assimp::Importer importer{};
 
-  const aiScene* scene = importer.ReadFile(
-    path.data(), 
-    aiProcess_Triangulate | 
-    aiProcess_FlipUVs |
-    aiProcess_GenNormals |
-    aiProcess_GenUVCoords
-  );
+  const aiScene *scene = importer.ReadFile(
+      path.data(), aiProcess_Triangulate | aiProcess_FlipUVs |
+                       aiProcess_GenNormals | aiProcess_GenUVCoords);
 
   if (!scene) {
-    throw std::runtime_error{std::string{"Failed to read mesh file: "} + importer.GetErrorString()};
+    throw std::runtime_error{std::string{"Failed to read mesh file: "} +
+                             importer.GetErrorString()};
   }
 
   std::vector<Vertex> vertices;
   std::vector<uint16_t> indices;
 
   for (size_t i = 0; i < scene->mNumMeshes; i++) {
-    aiMesh* assimpMesh = scene->mMeshes[i];
+    aiMesh *assimpMesh = scene->mMeshes[i];
 
     for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
       Vertex vertex{};
@@ -59,14 +56,18 @@ Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {
   }
 
   importer.FreeScene();
-  
-  vertexBuffer = Buffer{allocator, vertices.data(), static_cast<uint32_t>(sizeof(Vertex) * vertices.size()), vk::BufferUsageFlagBits::eVertexBuffer};
-  indexBuffer = Buffer{allocator, indices.data(), static_cast<uint32_t>(sizeof(uint16_t) * indices.size()), vk::BufferUsageFlagBits::eIndexBuffer};
 
-  indicesCount = indices.size(); 
+  vertexBuffer = Buffer{allocator, vertices.data(),
+                        static_cast<uint32_t>(sizeof(Vertex) * vertices.size()),
+                        vk::BufferUsageFlagBits::eVertexBuffer};
+  indexBuffer = Buffer{allocator, indices.data(),
+                       static_cast<uint32_t>(sizeof(uint16_t) * indices.size()),
+                       vk::BufferUsageFlagBits::eIndexBuffer};
+
+  indicesCount = indices.size();
 }
 
-void Mesh::destroy(const VmaAllocator& allocator) {
+void Mesh::destroy(const VmaAllocator &allocator) {
   vertexBuffer.destroy(allocator);
   indexBuffer.destroy(allocator);
 }

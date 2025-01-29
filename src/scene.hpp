@@ -9,10 +9,7 @@ struct Projection {
   alignas(16) glm::mat4 perspective;
 };
 
-enum class CameraMode {
-  Fixed,
-  Move
-};
+enum class CameraMode { Fixed, Move };
 
 struct Camera {
   glm::vec3 pos = glm::vec3{0.0, 0.0, 0.0};
@@ -28,5 +25,3 @@ struct Camera {
   float velocity = 0.1f;
   float sensitivity = 0.1f;
 };
-
-

@@ -4,5 +4,5 @@
 #include <vector>
 
 namespace fs {
-  std::vector<char> readFile(const std::string_view path);
+std::vector<char> readFile(const std::string_view path);
 }

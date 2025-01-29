@@ -9,9 +9,13 @@ public:
   std::vector<vk::DescriptorSet> descriptorSets;
   uint32_t swapchainImageCount;
 
-  Texture(const vk::Sampler& sampler, const vk::Device& device, const vk::DescriptorPool& descriptorPool, const Image& image, const uint32_t swapchainImageCount, const vk::DescriptorSetLayout& textureDescriptorSetLayout);
-  
-  void destroy(const VmaAllocator& allocator, const vk::Device& device);
+  Texture(const vk::Sampler &sampler, const vk::Device &device,
+          const vk::DescriptorPool &descriptorPool, const Image &image,
+          const uint32_t swapchainImageCount,
+          const vk::DescriptorSetLayout &textureDescriptorSetLayout);
+
+  void destroy(const VmaAllocator &allocator, const vk::Device &device);
+
 private:
   void createSampler();
 };

@@ -1,10 +1,10 @@
 #pragma once
 
+#include "buffer.hpp"
+#include "vk_mem_alloc.h"
 #include <glm/geometric.hpp>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.hpp>
-#include "buffer.hpp"
-#include "vk_mem_alloc.h"
 
 struct UniformBuffer {
   alignas(16) glm::mat4 translation = glm::mat4{1.0f};
@@ -28,15 +28,17 @@ public:
 
   Object();
 
-  Object(
-    const VmaAllocator& allocator,
-    const vk::Device& device, 
-    const uint32_t swapchainImageCount,
-    const vk::DescriptorPool& descriptorPool,
-    const vk::DescriptorSetLayout& descriptorSetLayout
-  );
+  Object(const VmaAllocator &allocator, const vk::Device &device,
+         const uint32_t swapchainImageCount,
+         const vk::DescriptorPool &descriptorPool,
+         const vk::DescriptorSetLayout &descriptorSetLayout);
 
-  void destroy(const VmaAllocator& allocator);
+  void destroy(const VmaAllocator &allocator);
+
 private:
-  void createDescriptors(const vk::DescriptorPool& descriptorPool, const vk::DescriptorSetLayout& descriptorSetLayout, const VmaAllocator& allocator, const vk::Device& device, const uint32_t swapchainImageCount);
+  void createDescriptors(const vk::DescriptorPool &descriptorPool,
+                         const vk::DescriptorSetLayout &descriptorSetLayout,
+                         const VmaAllocator &allocator,
+                         const vk::Device &device,
+                         const uint32_t swapchainImageCount);
 };

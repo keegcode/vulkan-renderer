@@ -1,31 +1,68 @@
-cmake_minimum_required(VERSION 3.7)
+cmake_minimum_required(VERSION 3.10)
+
+project(VulkanRenderer VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_FLAGS_DEBUG_INIT "-Wall")
-set(NAME VulkanRenderer)
 
-project(${NAME})
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
 
-find_package(Vulkan 1.3 REQUIRED)
-find_package(SDL2 REQUIRED)
-find_package(glm REQUIRED)
-find_package(assimp REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_library(vma INTERFACE)
-add_library(stb_image INTERFACE)
+find_package(Vulkan 1.3 REQUIRED)          
+find_package(SDL2 REQUIRED)          
+find_package(glm REQUIRED)         
+find_package(assimp REQUIRED) 
 
-file(COPY ./shaders/ DESTINATION ./shaders/)
-file(COPY ./textures/ DESTINATION ./textures/)
-file(COPY ./assets/ DESTINATION ./assets/)
+file(COPY "${PROJECT_SOURCE_DIR}/shaders/"   DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/shaders/")
+file(COPY "${PROJECT_SOURCE_DIR}/textures/"  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/textures/")
+file(COPY "${PROJECT_SOURCE_DIR}/assets/"    DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/assets/")
 
-file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
-file(GLOB_RECURSE HEADERS ${PROJECT_SOURCE_DIR}/src/*.hpp)
+add_executable(${PROJECT_NAME} 
+  src/main.cpp 
+  src/engine.cpp 
+  src/engine.hpp 
+  src/fs.cpp 
+  src/fs.hpp
+  src/mesh.cpp
+  src/mesh.hpp
+  src/image.cpp
+  src/image.hpp
+  src/light.cpp
+  src/light.hpp
+  src/buffer.cpp
+  src/buffer.hpp
+  src/object.cpp
+  src/object.hpp
+  src/texture.cpp
+  src/texture.hpp
+  src/display.cpp
+  src/display.hpp
+  src/shader.cpp
+  src/shader.hpp
+  src/utils.cpp
+  src/utils.hpp
+  src/pipeline.cpp
+  src/pipeline.hpp
+  src/stb_image.h
+  src/vk_mem_alloc.h
+  src/VkBootstrap.cpp
+  src/VkBootstrap.h
+  src/VkBootstrapDispatch.h
+)
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+target_link_libraries(${PROJECT_NAME}
+    PUBLIC 
+        assimp
+        glm::glm
+        Vulkan::Vulkan
+        SDL2::SDL2
+)
 
-add_subdirectory(./third_party/vk-bootstrap)
-
-target_include_directories(vma INTERFACE ./third_party/vma)
-target_include_directories(stb_image INTERFACE ./third_party/stb_image)
-
-target_link_libraries(${PROJECT_NAME} PUBLIC assimp vma stb_image vk-bootstrap::vk-bootstrap glm::glm Vulkan::Vulkan SDL2::SDL2)
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /Wall)
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic)
+endif()
