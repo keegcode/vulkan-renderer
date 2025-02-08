@@ -24,7 +24,6 @@ int main() {
   perspective[1][1] *= -1;
 
   Projection proj{model, view, perspective};
-
   Engine engine{};
 
   engine.setProjection(proj);

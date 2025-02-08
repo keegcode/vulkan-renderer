@@ -443,7 +443,7 @@ void Engine::pickPhysicalDevice() {
   surface = display.createVulkanSurface(instance.instance);
 
   std::vector<const char *> extensions = {
-      // VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
+    VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
   };
 
   vkb::Result<vkb::PhysicalDevice> physicalDeviceResult =
@@ -458,7 +458,7 @@ void Engine::pickPhysicalDevice() {
           .add_required_extension_features(
               vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(
                   1))
-          //.add_required_extension_features(vk::PhysicalDeviceDescriptorBufferFeaturesEXT{}.setDescriptorBuffer(1))
+          .add_required_extension_features(vk::PhysicalDeviceDescriptorBufferFeaturesEXT{}.setDescriptorBuffer(1))
           .select();
 
   if (!physicalDeviceResult) {
@@ -610,53 +610,26 @@ void Engine::createCommandBuffers() {
 void Engine::createPipelines() {
   vk::Device d = vk::Device{device};
 
-  pipelines.push_back(Pipeline{
-      allocator,
-      Shader{d, "./shaders/default.vert.glsl.spv"},
-      Shader{d, "./shaders/default-solid.frag.glsl.spv"},
-      d,
-      viewport,
-      scissors,
-      MAX_CONCURRENT_FRAMES,
-      descriptorPool,
-      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
-  });
-
-  pipelines.push_back(Pipeline{
-      allocator,
-      Shader{d, "./shaders/default.vert.glsl.spv"},
-      Shader{d, "./shaders/default.frag.glsl.spv"},
-      d,
-      viewport,
-      scissors,
-      MAX_CONCURRENT_FRAMES,
-      descriptorPool,
-      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
-  });
-
-  pipelines.push_back(Pipeline{
-      allocator,
-      Shader{d, "./shaders/phong-light.vert.glsl.spv"},
-      Shader{d, "./shaders/phong-light-solid.frag.glsl.spv"},
-      d,
-      viewport,
-      scissors,
-      MAX_CONCURRENT_FRAMES,
-      descriptorPool,
-      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
-  });
-
-  pipelines.push_back(Pipeline{
-      allocator,
-      Shader{d, "./shaders/phong-light.vert.glsl.spv"},
-      Shader{d, "./shaders/phong-light.frag.glsl.spv"},
-      d,
-      viewport,
-      scissors,
-      MAX_CONCURRENT_FRAMES,
-      descriptorPool,
-      {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
-  });
+  std::vector<std::vector<std::string>> materials{
+    {"./shaders/default.vert.glsl.spv", "./shaders/default-solid.frag.glsl.spv"},
+    {"./shaders/default.vert.glsl.spv", "./shaders/default.frag.glsl.spv"},
+    {"./shaders/phong-light.vert.glsl.spv", "./shaders/phong-light-solid.frag.glsl.spv"},
+    {"./shaders/phong-light.vert.glsl.spv", "./shaders/phong-light.frag.glsl.spv"},
+  };
+  
+  for (const std::vector<std::string>& shaders : materials) {
+    pipelines.push_back(Pipeline{
+        allocator,
+        Shader{d, shaders[0]},
+        Shader{d, shaders[1]},
+        d,
+        viewport,
+        scissors,
+        MAX_CONCURRENT_FRAMES,
+        descriptorPool,
+        {textureSetLayout, descriptorSetLayout, objectSetLayout, lightSetLayout},
+    });
+  }
 };
 
 void Engine::createSampler() {
