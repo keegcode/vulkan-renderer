@@ -1,11 +1,12 @@
 #include "buffer.hpp"
 #include "stb_image.h"
 #include "utils.hpp"
+#include <vulkan/vulkan_structs.hpp>
 
 Buffer::Buffer() {}
 
 Buffer::Buffer(const VmaAllocator &allocator, const void *data,
-               const uint32_t s, vk::BufferUsageFlagBits usage)
+               const vk::DeviceSize s, vk::BufferUsageFlagBits usage)
     : size{s} {
   VmaAllocationCreateInfo bufferAllocationCreateInfo{};
   bufferAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -25,7 +26,7 @@ Buffer::Buffer(const VmaAllocator &allocator, const void *data,
   buffer = b;
 }
 
-Buffer::Buffer(const VmaAllocator &allocator, const uint32_t s,
+Buffer::Buffer(const VmaAllocator &allocator, const vk::DeviceSize s,
                const vk::BufferUsageFlagBits usage)
     : size{s} {
   VmaAllocationCreateInfo bufferAllocationCreateInfo{};
@@ -90,4 +91,11 @@ void Buffer::copyToImage(const VmaAllocator &allocator,
 
 void Buffer::destroy(const VmaAllocator &allocator) {
   vmaDestroyBuffer(allocator, buffer, allocation);
+}
+
+vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device& device) {
+  vk::BufferDeviceAddressInfo bufferDeviceAddressInfo = vk::BufferDeviceAddressInfo{}
+      .setBuffer(buffer);
+
+  return device.getBufferAddress(bufferDeviceAddressInfo);
 }

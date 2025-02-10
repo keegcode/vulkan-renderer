@@ -7,12 +7,12 @@ class Buffer {
 public:
   vk::Buffer buffer;
   VmaAllocation allocation;
-  uint32_t size;
+  vk::DeviceSize size;
 
   Buffer();
-  Buffer(const VmaAllocator &allocator, const uint32_t size,
+  Buffer(const VmaAllocator &allocator, const vk::DeviceSize size,
          const vk::BufferUsageFlagBits usage);
-  Buffer(const VmaAllocator &allocator, const void *data, const uint32_t size,
+  Buffer(const VmaAllocator &allocator, const void *data, const vk::DeviceSize size,
          const vk::BufferUsageFlagBits usage);
 
   void copyToImage(const VmaAllocator &allocator, const vk::Device &device,
@@ -21,4 +21,6 @@ public:
                    unsigned char *srcData, const vk::Extent3D &extent);
 
   void destroy(const VmaAllocator &allocator);
+
+  vk::DeviceAddress getDeviceAddress(const vk::Device& device);
 };

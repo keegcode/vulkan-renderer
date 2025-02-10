@@ -459,6 +459,7 @@ void Engine::pickPhysicalDevice() {
               vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(
                   1))
           .add_required_extension_features(vk::PhysicalDeviceDescriptorBufferFeaturesEXT{}.setDescriptorBuffer(1))
+          .add_required_extension_features(vk::PhysicalDeviceBufferDeviceAddressFeatures{}.setBufferDeviceAddress(1))
           .select();
 
   if (!physicalDeviceResult) {
