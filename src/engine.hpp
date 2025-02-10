@@ -42,9 +42,10 @@ public:
 
 private:
   Display display;
-  Projection projection;
   Light light;
   Camera camera;
+  Projection projection;
+  Descriptor projectionDescriptor;
 
   vkb::Instance instance;
   vk::SurfaceKHR surface;
@@ -66,9 +67,7 @@ private:
   std::vector<vk::Semaphore> renderCompleteSemaphores;
   std::vector<vk::Semaphore> presentCompleteSemaphores;
 
-  vk::DescriptorPool descriptorPool;
-
-  vk::DescriptorSetLayout descriptorSetLayout;
+  vk::DescriptorSetLayout projectionSetLayout;
   vk::DescriptorSetLayout textureSetLayout;
   vk::DescriptorSetLayout objectSetLayout;
   vk::DescriptorSetLayout lightSetLayout;
@@ -96,7 +95,7 @@ private:
   void createViewportAndScissors();
   void createQueue();
   void createSyncPrimitives();
-  void createDescriptorPool();
+  void createDescriptorSetLayouts();
   void createCommandPool();
   void createCommandBuffers();
   void createSampler();

@@ -10,13 +10,11 @@ Pipeline::Pipeline(const VmaAllocator &allocator, const Shader &vert,
                    const Shader &frag, const vk::Device &device,
                    const vk::Viewport &v, const vk::Rect2D &s,
                    const uint32_t swapImgCount,
-                   const vk::DescriptorPool &descriporPool,
                    const std::vector<vk::DescriptorSetLayout> &descSetLayouts)
     : vertexShader{vert}, fragmentShader{frag},
       descriptorSetLayouts{descSetLayouts}, swapchainImageCount{swapImgCount},
       viewport{v}, scissors{s} {
   createVertexInputState();
-  createDescriptors(descriporPool, allocator, device);
   createPipeline(device);
 };
 
@@ -60,46 +58,6 @@ void Pipeline::createVertexInputState() {
       vertexTextureCoordAttributeDescription,
       vertexNormalsAttributeDescription,
   };
-}
-
-void Pipeline::createDescriptors(const vk::DescriptorPool &descriptorPool,
-                                 const VmaAllocator &allocator,
-                                 const vk::Device &device) {
-  std::vector<vk::DescriptorSetLayout> layouts(swapchainImageCount,
-                                               descriptorSetLayouts[1]);
-
-  vk::DescriptorSetAllocateInfo allocateInfo =
-      vk::DescriptorSetAllocateInfo{}
-          .setDescriptorPool(descriptorPool)
-          .setDescriptorSetCount(swapchainImageCount)
-          .setSetLayouts(layouts);
-
-  descriptorSets = device.allocateDescriptorSets(allocateInfo);
-
-  projection = Buffer{allocator, sizeof(Projection),
-                      vk::BufferUsageFlagBits::eUniformBuffer};
-
-  for (size_t i = 0; i < descriptorSets.size(); i++) {
-    vk::DescriptorBufferInfo projInfo = vk::DescriptorBufferInfo{}
-                                            .setBuffer(projection.buffer)
-                                            .setRange(sizeof(Projection))
-                                            .setOffset(0);
-
-    vk::WriteDescriptorSet projWrite =
-        vk::WriteDescriptorSet{}
-            .setDstSet(descriptorSets[i])
-            .setDstBinding(0)
-            .setDstArrayElement(0)
-            .setDescriptorCount(1)
-            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-            .setBufferInfo(projInfo);
-
-    std::vector<vk::WriteDescriptorSet> writes{
-        projWrite,
-    };
-
-    device.updateDescriptorSets(writes.size(), writes.data(), 0, nullptr);
-  }
 }
 
 void Pipeline::createPipeline(const vk::Device &device) {
@@ -234,5 +192,4 @@ void Pipeline::destroy(const VmaAllocator &allocator,
   device.destroyPipeline(graphicsPipeline);
   vertexShader.destroy(device);
   fragmentShader.destroy(device);
-  projection.destroy(allocator);
 }

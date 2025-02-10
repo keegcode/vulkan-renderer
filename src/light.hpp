@@ -1,6 +1,7 @@
 #pragma once
 
 #include "buffer.hpp"
+#include "descriptor.hpp"
 #include "vk_mem_alloc.h"
 #include <glm/geometric.hpp>
 #include <glm/glm.hpp>
@@ -15,25 +16,17 @@ struct LightProperties {
 class Light {
 public:
   LightProperties properties;
-
-  Buffer ubo;
-
-  vk::DescriptorSetLayout descriptorSetLayout;
-  std::vector<vk::DescriptorSet> descriptorSets;
+  Descriptor descriptor;
 
   Light();
 
   Light(const VmaAllocator &allocator, const vk::Device &device,
-        const uint32_t swapchainImageCount,
-        const vk::DescriptorPool &descriptorPool,
         const vk::DescriptorSetLayout &descriptorSetLayout);
 
   void destroy(const VmaAllocator &allocator);
 
 private:
-  void createDescriptors(const vk::DescriptorPool &descriptorPool,
-                         const vk::DescriptorSetLayout &descriptorSetLayout,
+  void createDescriptors(const vk::DescriptorSetLayout &descriptorSetLayout,
                          const VmaAllocator &allocator,
-                         const vk::Device &device,
-                         const uint32_t swapchainImageCount);
+                         const vk::Device &device);
 };

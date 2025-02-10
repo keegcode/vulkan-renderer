@@ -93,9 +93,9 @@ void Buffer::destroy(const VmaAllocator &allocator) {
   vmaDestroyBuffer(allocator, buffer, allocation);
 }
 
-vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device& device) {
-  vk::BufferDeviceAddressInfo bufferDeviceAddressInfo = vk::BufferDeviceAddressInfo{}
-      .setBuffer(buffer);
+vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device &device) {
+  vk::BufferDeviceAddressInfo bufferDeviceAddressInfo =
+      vk::BufferDeviceAddressInfo{}.setBuffer(buffer);
 
   return device.getBufferAddress(bufferDeviceAddressInfo);
 }

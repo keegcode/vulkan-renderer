@@ -1,17 +1,18 @@
 #pragma once
 
+#include "descriptor.hpp"
 #include "image.hpp"
+
 #include <vulkan/vulkan_handles.hpp>
 
 class Texture {
 public:
   Image image;
-  std::vector<vk::DescriptorSet> descriptorSets;
+  Descriptor descriptor;
   uint32_t swapchainImageCount;
 
   Texture(const vk::Sampler &sampler, const vk::Device &device,
-          const vk::DescriptorPool &descriptorPool, const Image &image,
-          const uint32_t swapchainImageCount,
+          const Image &image,
           const vk::DescriptorSetLayout &textureDescriptorSetLayout);
 
   void destroy(const VmaAllocator &allocator, const vk::Device &device);

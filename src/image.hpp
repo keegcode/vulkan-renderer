@@ -12,11 +12,13 @@ public:
   vk::ImageLayout layout = vk::ImageLayout::eUndefined;
 
   Image();
+
   Image(const VmaAllocator &allocator, const vk::Device &device,
         const vk::CommandPool &commandPool, const vk::Queue &transferQueue,
         const vk::Extent3D &extent, const vk::Format format,
         const vk::ImageUsageFlagBits usage,
         const vk::ImageAspectFlagBits aspectMask);
+
   Image(const VmaAllocator &allocator, const vk::Device &device,
         const vk::CommandPool &commandPool, const vk::Queue &transferQueue,
         const std::string_view path, const vk::ImageLayout layout);

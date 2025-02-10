@@ -10,10 +10,12 @@ public:
   vk::DeviceSize size;
 
   Buffer();
+
   Buffer(const VmaAllocator &allocator, const vk::DeviceSize size,
          const vk::BufferUsageFlagBits usage);
-  Buffer(const VmaAllocator &allocator, const void *data, const vk::DeviceSize size,
-         const vk::BufferUsageFlagBits usage);
+
+  Buffer(const VmaAllocator &allocator, const void *data,
+         const vk::DeviceSize size, const vk::BufferUsageFlagBits usage);
 
   void copyToImage(const VmaAllocator &allocator, const vk::Device &device,
                    const vk::CommandPool &commandPool,
@@ -22,5 +24,5 @@ public:
 
   void destroy(const VmaAllocator &allocator);
 
-  vk::DeviceAddress getDeviceAddress(const vk::Device& device);
+  vk::DeviceAddress getDeviceAddress(const vk::Device &device);
 };

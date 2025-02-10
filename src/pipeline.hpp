@@ -11,9 +11,6 @@ public:
   vk::Pipeline graphicsPipeline;
   vk::PipelineLayout pipelineLayout;
 
-  Buffer projection;
-
-  std::vector<vk::DescriptorSet> descriptorSets;
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts;
 
   std::vector<vk::VertexInputBindingDescription> inputBindings;
@@ -28,15 +25,11 @@ public:
            const Shader &frag, const vk::Device &device,
            const vk::Viewport &viewport, const vk::Rect2D &scissors,
            const uint32_t swapchainImageCount,
-           const vk::DescriptorPool &descriptorPool,
            const std::vector<vk::DescriptorSetLayout> &descriptorSetLayouts);
 
   void destroy(const VmaAllocator &allocator, const vk::Device &device);
 
 private:
   void createVertexInputState();
-  void createDescriptors(const vk::DescriptorPool &descriptorPool,
-                         const VmaAllocator &allocator,
-                         const vk::Device &device);
   void createPipeline(const vk::Device &device);
 };
