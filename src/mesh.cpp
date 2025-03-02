@@ -1,15 +1,14 @@
 #include "mesh.hpp"
 #include "buffer.hpp"
 
-#include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include <cstdint>
+#include <assimp/Importer.hpp>
 
-Mesh::Mesh(const VmaAllocator &allocator, const std::string_view path) {
+Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {
   Assimp::Importer importer{};
 
-  const aiScene *scene = importer.ReadFile(
+  const aiScene* scene = importer.ReadFile(
       path.data(), aiProcess_Triangulate | aiProcess_FlipUVs |
                        aiProcess_GenNormals | aiProcess_GenUVCoords);
 
@@ -22,7 +21,7 @@ Mesh::Mesh(const VmaAllocator &allocator, const std::string_view path) {
   std::vector<uint16_t> indices;
 
   for (size_t i = 0; i < scene->mNumMeshes; i++) {
-    aiMesh *assimpMesh = scene->mMeshes[i];
+    aiMesh* assimpMesh = scene->mMeshes[i];
 
     for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
       Vertex vertex{};
@@ -67,7 +66,7 @@ Mesh::Mesh(const VmaAllocator &allocator, const std::string_view path) {
   indicesCount = indices.size();
 }
 
-void Mesh::destroy(const VmaAllocator &allocator) {
+void Mesh::destroy(const VmaAllocator& allocator) {
   vertexBuffer.destroy(allocator);
   indexBuffer.destroy(allocator);
 }

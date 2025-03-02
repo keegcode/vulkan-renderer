@@ -1,12 +1,13 @@
 #include "buffer.hpp"
 #include "stb_image.h"
 #include "utils.hpp"
-#include <vulkan/vulkan_structs.hpp>
 
 Buffer::Buffer() {}
 
-Buffer::Buffer(const VmaAllocator &allocator, const void *data,
-               const vk::DeviceSize s, vk::BufferUsageFlagBits usage)
+Buffer::Buffer(const VmaAllocator& allocator,
+               const void* data,
+               const vk::DeviceSize s,
+               vk::Flags<vk::BufferUsageFlagBits> usage)
     : size{s} {
   VmaAllocationCreateInfo bufferAllocationCreateInfo{};
   bufferAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -20,14 +21,16 @@ Buffer::Buffer(const VmaAllocator &allocator, const void *data,
   VkBuffer b;
 
   vmaCreateBuffer(allocator, &bufferCreateInfo, &bufferAllocationCreateInfo, &b,
-                  &allocation, nullptr);
+                  &allocation, &allocationInfo);
+
   vmaCopyMemoryToAllocation(allocator, data, allocation, 0, size);
 
   buffer = b;
 }
 
-Buffer::Buffer(const VmaAllocator &allocator, const vk::DeviceSize s,
-               const vk::BufferUsageFlagBits usage)
+Buffer::Buffer(const VmaAllocator& allocator,
+               const vk::DeviceSize s,
+               const vk::Flags<vk::BufferUsageFlagBits> usage)
     : size{s} {
   VmaAllocationCreateInfo bufferAllocationCreateInfo{};
   bufferAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -41,16 +44,41 @@ Buffer::Buffer(const VmaAllocator &allocator, const vk::DeviceSize s,
   VkBuffer b;
 
   vmaCreateBuffer(allocator, &bufferCreateInfo, &bufferAllocationCreateInfo, &b,
-                  &allocation, nullptr);
+                  &allocation, &allocationInfo);
 
   buffer = b;
 }
 
-void Buffer::copyToImage(const VmaAllocator &allocator,
-                         const vk::Device &device,
-                         const vk::CommandPool &commandPool,
-                         const vk::Queue &transferQueue, const vk::Image &image,
-                         unsigned char *srcData, const vk::Extent3D &extent) {
+Buffer::Buffer(const VmaAllocator& allocator,
+               const vk::DeviceSize s,
+               const vk::Flags<vk::BufferUsageFlagBits> usage,
+               VmaMemoryUsage memoryUsage,
+               VmaAllocationCreateFlags createFlags)
+    : size{s} {
+  VmaAllocationCreateInfo bufferAllocationCreateInfo{};
+  bufferAllocationCreateInfo.usage = memoryUsage;
+  bufferAllocationCreateInfo.flags = createFlags;
+
+  VkBufferCreateInfo bufferCreateInfo =
+      vk::BufferCreateInfo{}.setSize(size).setUsage(usage).setSharingMode(
+          vk::SharingMode::eExclusive);
+
+  VkBuffer b;
+
+  vmaCreateBuffer(allocator, &bufferCreateInfo, &bufferAllocationCreateInfo, &b,
+                  &allocation, &allocationInfo);
+
+  buffer = b;
+}
+
+void Buffer::copyToImage(const VmaAllocator& allocator,
+                         const vk::Device& device,
+                         const vk::CommandPool& commandPool,
+                         const vk::Queue& transferQueue,
+                         const vk::Image& image,
+                         unsigned char* srcData,
+                         vk::DeviceSize size,
+                         const vk::Extent3D& extent) {
   Buffer stagingBuffer =
       Buffer{allocator, srcData, size, vk::BufferUsageFlagBits::eTransferSrc};
 
@@ -89,11 +117,11 @@ void Buffer::copyToImage(const VmaAllocator &allocator,
   stagingBuffer.destroy(allocator);
 }
 
-void Buffer::destroy(const VmaAllocator &allocator) {
+void Buffer::destroy(const VmaAllocator& allocator) {
   vmaDestroyBuffer(allocator, buffer, allocation);
 }
 
-vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device &device) {
+vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device& device) const {
   vk::BufferDeviceAddressInfo bufferDeviceAddressInfo =
       vk::BufferDeviceAddressInfo{}.setBuffer(buffer);
 

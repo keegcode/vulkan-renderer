@@ -1,38 +1,38 @@
 #pragma once
 
-#include <SDL.h>
-#include <cstdint>
-#include <glm/glm.hpp>
-#include <vector>
 #include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_core.h>
 
 #include "VkBootstrap.h"
+
 #include "display.hpp"
-#include "light.hpp"
 #include "mesh.hpp"
-#include "object.hpp"
 #include "pipeline.hpp"
 #include "scene.hpp"
 #include "texture.hpp"
 
 class Engine {
-public:
+ public:
   std::vector<Mesh> meshes;
   std::vector<Texture> textures;
   std::vector<Object> objects;
+  std::vector<Material> materials;
 
-  std::vector<Pipeline> pipelines;
+  Pipeline pipeline;
 
   bool isRunning = true;
 
-  void init(const Display &d);
+  void init(const Display& d);
 
-  void setProjection(const Projection &projection);
-  void setLight(const glm::vec3 &pos, const glm::vec3 color,
-                const float ambient);
-  void addObject(const UniformBuffer &uniform, const uint32_t meshIdx,
-                 const uint32_t textureIdx, const uint32_t pipelineIdx);
+  void setProjection(const ProjectionProperties& properties);
+
+  void setLight(const LightProperties& properties);
+
+  void addObject(const ObjectProperties& uniform,
+                 const uint32_t meshIdx,
+                 const uint32_t textureIdx,
+                 const uint32_t materialIdx);
+
+  void addMaterial(const MaterialProperties& uniform);
   void loadMesh(const std::string_view path);
   void loadTexture(const std::string_view path);
 
@@ -40,17 +40,20 @@ public:
   void processInput(float deltaTime);
   void destroy();
 
-private:
+ private:
   Display display;
   Light light;
   Camera camera;
   Projection projection;
-  Descriptor projectionDescriptor;
 
   vkb::Instance instance;
+  vk::detail::DispatchLoaderDynamic dld;
   vk::SurfaceKHR surface;
   vkb::PhysicalDevice physicalDevice;
   vkb::Device device;
+
+  vk::PhysicalDeviceProperties2 physicalDeviceProperties;
+  vk::PhysicalDeviceDescriptorBufferPropertiesEXT descriptorBufferProperties;
 
   vk::Queue queue;
   uint32_t queueIndex;
@@ -71,6 +74,7 @@ private:
   vk::DescriptorSetLayout textureSetLayout;
   vk::DescriptorSetLayout objectSetLayout;
   vk::DescriptorSetLayout lightSetLayout;
+  vk::DescriptorSetLayout materialSetLayout;
 
   vk::CommandPool commandPool;
   std::vector<vk::CommandBuffer> commadBuffers;
@@ -99,5 +103,5 @@ private:
   void createCommandPool();
   void createCommandBuffers();
   void createSampler();
-  void createPipelines();
+  void createPipeline();
 };

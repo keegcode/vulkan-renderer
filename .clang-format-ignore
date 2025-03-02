@@ -3,3 +3,7 @@ src/vk_mem_alloc.h
 src/VkBootstrap.cpp
 src/VkBootstrap.h
 src/VkBootstrapDispatch.h
+
+build/*
+assets/*
+textures/*

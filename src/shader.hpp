@@ -4,13 +4,15 @@
 #include <vulkan/vulkan.hpp>
 
 class Shader {
-public:
+ public:
   vk::ShaderModule module;
 
-  Shader(const vk::Device &device, const std::string_view path);
-  void destroy(const vk::Device &device);
+  Shader();
+  Shader(const vk::Device& device, const std::string_view path);
 
-private:
-  void createShaderModule(const vk::Device &device,
+  void destroy(const vk::Device& device);
+
+ private:
+  void createShaderModule(const vk::Device& device,
                           const std::string_view path);
 };

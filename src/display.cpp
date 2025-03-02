@@ -1,8 +1,6 @@
 #include "display.hpp"
 
-#include <SDL.h>
 #include <SDL_vulkan.h>
-
 #include <stdexcept>
 
 void Display::init() {
@@ -50,7 +48,7 @@ void Display::destroy() {
   SDL_Quit();
 }
 
-VkSurfaceKHR Display::createVulkanSurface(const VkInstance &instance) {
+VkSurfaceKHR Display::createVulkanSurface(const VkInstance& instance) {
   VkSurfaceKHR surface{};
   if (!SDL_Vulkan_CreateSurface(window, instance, &surface)) {
     throw std::runtime_error{

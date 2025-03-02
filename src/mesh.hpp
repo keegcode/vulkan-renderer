@@ -10,13 +10,13 @@ struct Vertex {
 };
 
 class Mesh {
-public:
+ public:
   Buffer vertexBuffer;
   Buffer indexBuffer;
   uint32_t indicesCount;
 
   Mesh();
-  Mesh(const VmaAllocator &allocator, const std::string_view path);
+  Mesh(const VmaAllocator& allocator, const std::string_view path);
 
-  void destroy(const VmaAllocator &allocator);
+  void destroy(const VmaAllocator& allocator);
 };

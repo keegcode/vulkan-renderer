@@ -24,24 +24,20 @@ add_executable(${PROJECT_NAME}
   src/main.cpp 
   src/engine.cpp 
   src/engine.hpp 
-  src/fs.cpp 
-  src/fs.hpp
   src/mesh.cpp
   src/mesh.hpp
   src/image.cpp
   src/image.hpp
-  src/light.cpp
-  src/light.hpp
   src/buffer.cpp
   src/buffer.hpp
-  src/object.cpp
-  src/object.hpp
-  src/texture.cpp
-  src/texture.hpp
   src/display.cpp
   src/display.hpp
   src/shader.cpp
   src/shader.hpp
+  src/scene.cpp
+  src/scene.hpp
+  src/descriptor.cpp
+  src/descriptor.hpp
   src/utils.cpp
   src/utils.hpp
   src/pipeline.cpp

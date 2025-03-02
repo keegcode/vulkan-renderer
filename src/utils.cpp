@@ -1,14 +1,15 @@
 #include "utils.hpp"
+
+#include <fstream>
 #include "VkBootstrap.h"
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_enums.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-vkb::Swapchain utils::createSwapchain(vkb::Device device, vk::Extent2D extent,
+vkb::Swapchain utils::createSwapchain(vkb::Device device,
+                                      vk::Extent2D extent,
                                       uint16_t minImageCount,
-                                      vkb::Swapchain *old) {
+                                      vkb::Swapchain* old) {
   vkb::SwapchainBuilder builder =
       vkb::SwapchainBuilder{device}
           .set_old_swapchain(*old)
@@ -31,8 +32,8 @@ vkb::Swapchain utils::createSwapchain(vkb::Device device, vk::Extent2D extent,
   return swapchainResult.value();
 };
 
-std::tuple<vk::Viewport, vk::Rect2D>
-utils::createViewportAndScissors(const vk::Extent3D &extent) {
+std::tuple<vk::Viewport, vk::Rect2D> utils::createViewportAndScissors(
+    const vk::Extent3D& extent) {
   vk::Viewport viewport = vk::Viewport{}
                               .setX(0)
                               .setY(0)
@@ -49,9 +50,9 @@ utils::createViewportAndScissors(const vk::Extent3D &extent) {
   return std::make_tuple(viewport, scissors);
 };
 
-vk::CommandBuffer
-utils::beginSingleSubmitCommand(const vk::Device &device,
-                                const vk::CommandPool &commandPool) {
+vk::CommandBuffer utils::beginSingleSubmitCommand(
+    const vk::Device& device,
+    const vk::CommandPool& commandPool) {
   vk::CommandBuffer commandBuffer;
 
   vk::CommandBufferAllocateInfo commandBufferAllocateInfo =
@@ -73,10 +74,10 @@ utils::beginSingleSubmitCommand(const vk::Device &device,
   return commandBuffer;
 }
 
-void utils::endSingleSubmitCommand(const vk::Device &device,
-                                   const vk::CommandPool &commandPool,
-                                   const vk::CommandBuffer &commandBuffer,
-                                   const vk::Queue &queue) {
+void utils::endSingleSubmitCommand(const vk::Device& device,
+                                   const vk::CommandPool& commandPool,
+                                   const vk::CommandBuffer& commandBuffer,
+                                   const vk::Queue& queue) {
   commandBuffer.end();
 
   vk::SubmitInfo submitInfo = vk::SubmitInfo{}
@@ -89,4 +90,27 @@ void utils::endSingleSubmitCommand(const vk::Device &device,
 
   queue.waitIdle();
   device.freeCommandBuffers(commandPool, 1, &commandBuffer);
+}
+
+vk::DeviceSize utils::getAlignedSize(const vk::DeviceSize size,
+                                     const uint32_t alignment) {
+  return (size + alignment - 1) & ~(alignment - 1);
+}
+
+std::vector<char> utils::readFile(const std::string_view path) {
+  std::ifstream file{path.data(),
+                     std::ios::in | std::ios::binary | std::ios::ate};
+
+  if (!file.is_open()) {
+    throw std::runtime_error{std::string{"Failed to open file: "} +
+                             path.data()};
+  }
+
+  std::ifstream::pos_type size = file.tellg();
+  file.seekg(0, std::ios::beg);
+
+  std::vector<char> bytes(size);
+  file.read(bytes.data(), size);
+
+  return bytes;
 }

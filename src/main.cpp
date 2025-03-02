@@ -1,13 +1,15 @@
+#include "scene.hpp"
+
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+
 #include "vk_mem_alloc.h"
+
+#include "engine.hpp"
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
-#include <glm/glm.hpp>
-
-#include "engine.hpp"
 
 int main() {
   Display display{};
@@ -23,26 +25,37 @@ int main() {
 
   perspective[1][1] *= -1;
 
-  Projection proj{model, view, perspective};
+  ProjectionProperties proj{model, view, perspective};
   Engine engine{};
 
-  engine.setProjection(proj);
-
   engine.init(display);
+
+  engine.setProjection(proj);
 
   engine.loadMesh("./assets/cube.obj");
   engine.loadMesh("./assets/suzanne.obj");
 
   engine.loadTexture("./textures/default.jpg");
 
-  UniformBuffer obj1{};
+  MaterialProperties material{};
+  material.solid = 0;
+  material.ambient = glm::vec3{1.0, 1.0, 1.0};
+  material.diffuse = glm::vec3{1.0, 1.0, 1.0};
+  material.specular = glm::vec3{1.0, 1.0, 1.0};
+  material.shininess = 0.5;
+
+  engine.addMaterial(material);
+
+  ObjectProperties obj1{};
   obj1.translation =
       glm::translate(obj1.translation, glm::vec3{0.0, 0.0, -10.0});
   obj1.scale = glm::scale(obj1.scale, glm::vec3{2.5});
 
-  engine.addObject(obj1, 1, 0, 2);
+  engine.addObject(obj1, 1, 0, 0);
 
-  engine.setLight(glm::vec3{0.0, 0.0, 0.0}, glm::vec3{1.0}, 0.03);
+  LightProperties light{glm::vec3{0.0}, glm::vec3{1.0}, 0.03};
+
+  engine.setLight(light);
 
   float previousTicks = SDL_GetTicks();
   float deltaTime;

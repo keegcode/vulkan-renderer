@@ -5,9 +5,10 @@
 
 Image::Image() {}
 
-Image::Image(const VmaAllocator &allocator, const vk::Device &device,
-             const vk::CommandPool &commandPool, const vk::Queue &transferQueue,
-             const vk::Extent3D &extent, const vk::Format format,
+Image::Image(const VmaAllocator& allocator,
+             const vk::Device& device,
+             const vk::Extent3D& extent,
+             const vk::Format format,
              const vk::ImageUsageFlagBits usage,
              const vk::ImageAspectFlagBits aspectMask) {
   VkImageCreateInfo imageCreateInfo =
@@ -52,14 +53,17 @@ Image::Image(const VmaAllocator &allocator, const vk::Device &device,
   view = device.createImageView(imageViewCreateInfo, nullptr);
 }
 
-Image::Image(const VmaAllocator &allocator, const vk::Device &device,
-             const vk::CommandPool &commandPool, const vk::Queue &transferQueue,
-             const std::string_view path, vk::ImageLayout l) {
+Image::Image(const VmaAllocator& allocator,
+             const vk::Device& device,
+             const vk::CommandPool& commandPool,
+             const vk::Queue& transferQueue,
+             const std::string_view path,
+             vk::ImageLayout l) {
   int height, width;
 
-  unsigned char *data =
-      stbi_load(path.data(), reinterpret_cast<int *>(&width),
-                reinterpret_cast<int *>(&height), nullptr, STBI_rgb_alpha);
+  unsigned char* data =
+      stbi_load(path.data(), reinterpret_cast<int*>(&width),
+                reinterpret_cast<int*>(&height), nullptr, STBI_rgb_alpha);
 
   extent = vk::Extent3D{}.setWidth(width).setHeight(height).setDepth(1);
 
@@ -106,23 +110,22 @@ Image::Image(const VmaAllocator &allocator, const vk::Device &device,
   view = device.createImageView(imageViewCreateInfo, nullptr);
 
   uint32_t size = width * height * STBI_rgb_alpha;
-  Buffer stagingBuffer{allocator, data, size,
-                       vk::BufferUsageFlagBits::eTransferSrc};
 
   transitionImageLayout(device, commandPool, transferQueue,
                         vk::ImageLayout::eTransferDstOptimal);
-  stagingBuffer.copyToImage(allocator, device, commandPool, transferQueue,
-                            image, data, extent);
+
+  Buffer::copyToImage(allocator, device, commandPool, transferQueue, image,
+                      data, size, extent);
+
   transitionImageLayout(device, commandPool, transferQueue, l);
 
-  stagingBuffer.destroy(allocator);
   stbi_image_free(data);
 };
 
-void Image::transitionImageLayout(const vk::Device &device,
-                                  const vk::CommandPool &commandPool,
-                                  const vk::Queue &transferQueue,
-                                  const vk::ImageLayout &newLayout) {
+void Image::transitionImageLayout(const vk::Device& device,
+                                  const vk::CommandPool& commandPool,
+                                  const vk::Queue& transferQueue,
+                                  const vk::ImageLayout& newLayout) {
   vk::ImageSubresourceRange subresourceRange =
       vk::ImageSubresourceRange{}
           .setLayerCount(1)
@@ -160,7 +163,7 @@ void Image::transitionImageLayout(const vk::Device &device,
   layout = newLayout;
 }
 
-void Image::destroy(const VmaAllocator &allocator, const vk::Device &device) {
+void Image::destroy(const VmaAllocator& allocator, const vk::Device& device) {
   device.destroyImageView(view);
   vmaDestroyImage(allocator, image, allocation);
 }

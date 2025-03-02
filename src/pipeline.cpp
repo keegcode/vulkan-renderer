@@ -1,19 +1,22 @@
 #include "pipeline.hpp"
-#include "buffer.hpp"
-#include "mesh.hpp"
-#include "scene.hpp"
-#include <glm/ext/vector_float3.hpp>
 #include <vulkan/vulkan_enums.hpp>
-#include <vulkan/vulkan_handles.hpp>
+#include "mesh.hpp"
 
-Pipeline::Pipeline(const VmaAllocator &allocator, const Shader &vert,
-                   const Shader &frag, const vk::Device &device,
-                   const vk::Viewport &v, const vk::Rect2D &s,
+Pipeline::Pipeline() {};
+
+Pipeline::Pipeline(const Shader& vert,
+                   const Shader& frag,
+                   const vk::Device& device,
+                   const vk::Viewport& v,
+                   const vk::Rect2D& s,
                    const uint32_t swapImgCount,
-                   const std::vector<vk::DescriptorSetLayout> &descSetLayouts)
-    : vertexShader{vert}, fragmentShader{frag},
-      descriptorSetLayouts{descSetLayouts}, swapchainImageCount{swapImgCount},
-      viewport{v}, scissors{s} {
+                   const std::vector<vk::DescriptorSetLayout>& descSetLayouts)
+    : vertexShader{vert},
+      fragmentShader{frag},
+      descriptorSetLayouts{descSetLayouts},
+      swapchainImageCount{swapImgCount},
+      viewport{v},
+      scissors{s} {
   createVertexInputState();
   createPipeline(device);
 };
@@ -60,7 +63,7 @@ void Pipeline::createVertexInputState() {
   };
 }
 
-void Pipeline::createPipeline(const vk::Device &device) {
+void Pipeline::createPipeline(const vk::Device& device) {
   vk::PipelineShaderStageCreateInfo vertexShaderStage =
       vk::PipelineShaderStageCreateInfo{}
           .setStage(vk::ShaderStageFlagBits::eVertex)
@@ -174,7 +177,8 @@ void Pipeline::createPipeline(const vk::Device &device) {
           .setPColorBlendState(&colorBlendState)
           .setPDynamicState(&dynamicState)
           .setRenderPass(VK_NULL_HANDLE)
-          .setLayout(pipelineLayout);
+          .setLayout(pipelineLayout)
+          .setFlags(vk::PipelineCreateFlagBits::eDescriptorBufferEXT);
 
   vk::ResultValue<vk::Pipeline> pipelineResult =
       device.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
@@ -186,8 +190,7 @@ void Pipeline::createPipeline(const vk::Device &device) {
   graphicsPipeline = pipelineResult.value;
 }
 
-void Pipeline::destroy(const VmaAllocator &allocator,
-                       const vk::Device &device) {
+void Pipeline::destroy(const vk::Device& device) {
   device.destroyPipelineLayout(pipelineLayout);
   device.destroyPipeline(graphicsPipeline);
   vertexShader.destroy(device);

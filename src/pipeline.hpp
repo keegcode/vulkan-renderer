@@ -1,10 +1,9 @@
 #pragma once
 
-#include "buffer.hpp"
 #include "shader.hpp"
 
 class Pipeline {
-public:
+ public:
   Shader vertexShader;
   Shader fragmentShader;
 
@@ -18,18 +17,22 @@ public:
 
   uint32_t swapchainImageCount;
 
-  const vk::Viewport viewport;
-  const vk::Rect2D scissors;
+  vk::Viewport viewport;
+  vk::Rect2D scissors;
 
-  Pipeline(const VmaAllocator &allocator, const Shader &vert,
-           const Shader &frag, const vk::Device &device,
-           const vk::Viewport &viewport, const vk::Rect2D &scissors,
+  Pipeline();
+
+  Pipeline(const Shader& vert,
+           const Shader& frag,
+           const vk::Device& device,
+           const vk::Viewport& viewport,
+           const vk::Rect2D& scissors,
            const uint32_t swapchainImageCount,
-           const std::vector<vk::DescriptorSetLayout> &descriptorSetLayouts);
+           const std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts);
 
-  void destroy(const VmaAllocator &allocator, const vk::Device &device);
+  void destroy(const vk::Device& device);
 
-private:
+ private:
   void createVertexInputState();
-  void createPipeline(const vk::Device &device);
+  void createPipeline(const vk::Device& device);
 };
