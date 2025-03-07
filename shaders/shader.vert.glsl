@@ -18,16 +18,13 @@ layout(set = 1, binding = 0) uniform Projection {
 proj;
 
 layout(set = 2, binding = 0) uniform Object {
-  mat4 translation;
-  mat4 rotation;
-  mat4 scale;
+  mat4 matrix;
   vec3 color;
 }
 object;
 
 void main() {
-  vec3 pos = (proj.view * object.translation * object.rotation * object.scale *
-              proj.model * vec4(inPosition, 1.0))
+  vec3 pos = (proj.view * object.matrix * proj.model * vec4(inPosition, 1.0))
                  .xyz;
   vec3 normal = normalize((proj.view * object.rotation * proj.model *
                            vec4(inNormals, 0.0)))

@@ -11,9 +11,12 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 
-int main() {
+int32_t main() {
   Display display{};
   display.init();
+
+  Engine engine{};
+  engine.init(display);
 
   glm::mat4 model{1.0f};
   glm::mat4 view{1.0f};
@@ -25,36 +28,32 @@ int main() {
 
   perspective[1][1] *= -1;
 
-  ProjectionProperties proj{model, view, perspective};
-  Engine engine{};
-
-  engine.init(display);
-
-  engine.setProjection(proj);
+  Projection proj{model, view, perspective};
+  engine.projection = proj;
 
   engine.loadMesh("./assets/cube.obj");
   engine.loadMesh("./assets/suzanne.obj");
 
   engine.loadTexture("./textures/default.jpg");
 
-  MaterialProperties material{};
-  material.solid = 0;
+  Material material{};
+  material.solid = 1;
   material.ambient = glm::vec3{1.0, 1.0, 1.0};
   material.diffuse = glm::vec3{1.0, 1.0, 1.0};
   material.specular = glm::vec3{1.0, 1.0, 1.0};
   material.shininess = 0.5;
 
-  engine.addMaterial(material);
+  engine.materials.push_back(material);
 
-  ObjectProperties obj1{};
-  obj1.translation =
-      glm::translate(obj1.translation, glm::vec3{0.0, 0.0, -10.0});
-  obj1.scale = glm::scale(obj1.scale, glm::vec3{2.5});
+  Object obj1{};
+  obj1.matrix = glm::scale(glm::translate(obj1.matrix, glm::vec3{0.0, 0.0, -10.0}), glm::vec3{2.5f});
+  obj1.textureIdx = 1;
+  obj1.meshIdx = 0;
+  obj1.materialIdx = 0;
 
-  engine.addObject(obj1, 1, 0, 0);
+  engine.objects.push_back(obj1);
 
-  LightProperties light{glm::vec3{0.0}, glm::vec3{1.0}, 0.03};
-
+  Light light{glm::vec3{0.0}, glm::vec3{1.0}, 0.03};
   engine.setLight(light);
 
   float previousTicks = SDL_GetTicks();

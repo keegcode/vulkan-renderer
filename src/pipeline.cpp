@@ -9,12 +9,10 @@ Pipeline::Pipeline(const Shader& vert,
                    const vk::Device& device,
                    const vk::Viewport& v,
                    const vk::Rect2D& s,
-                   const uint32_t swapImgCount,
                    const std::vector<vk::DescriptorSetLayout>& descSetLayouts)
     : vertexShader{vert},
       fragmentShader{frag},
       descriptorSetLayouts{descSetLayouts},
-      swapchainImageCount{swapImgCount},
       viewport{v},
       scissors{s} {
   createVertexInputState();

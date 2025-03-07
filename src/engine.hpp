@@ -1,17 +1,21 @@
 #pragma once
 
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_handles.hpp>
+#include <vulkan/vulkan_structs.hpp>
 
 #include "VkBootstrap.h"
 
+#include "descriptor.hpp"
 #include "display.hpp"
 #include "mesh.hpp"
 #include "pipeline.hpp"
 #include "scene.hpp"
-#include "texture.hpp"
 
 class Engine {
  public:
+  Projection projection;
+
   std::vector<Mesh> meshes;
   std::vector<Texture> textures;
   std::vector<Object> objects;
@@ -22,17 +26,7 @@ class Engine {
   bool isRunning = true;
 
   void init(const Display& d);
-
-  void setProjection(const ProjectionProperties& properties);
-
-  void setLight(const LightProperties& properties);
-
-  void addObject(const ObjectProperties& uniform,
-                 const uint32_t meshIdx,
-                 const uint32_t textureIdx,
-                 const uint32_t materialIdx);
-
-  void addMaterial(const MaterialProperties& uniform);
+  void setLight(const Light& light);
   void loadMesh(const std::string_view path);
   void loadTexture(const std::string_view path);
 
@@ -42,18 +36,16 @@ class Engine {
 
  private:
   Display display;
-  Light light;
   Camera camera;
-  Projection projection;
+  Light light;
 
   vkb::Instance instance;
   vk::detail::DispatchLoaderDynamic dld;
   vk::SurfaceKHR surface;
   vkb::PhysicalDevice physicalDevice;
-  vkb::Device device;
-
   vk::PhysicalDeviceProperties2 physicalDeviceProperties;
   vk::PhysicalDeviceDescriptorBufferPropertiesEXT descriptorBufferProperties;
+  vkb::Device device;
 
   vk::Queue queue;
   uint32_t queueIndex;
@@ -66,21 +58,21 @@ class Engine {
 
   VmaAllocator allocator;
 
-  std::vector<vk::Fence> fences;
-  std::vector<vk::Semaphore> renderCompleteSemaphores;
-  std::vector<vk::Semaphore> presentCompleteSemaphores;
+  vk::Fence fence;
+  vk::Semaphore renderCompleteSemaphore;
+  vk::Semaphore presentCompleteSemaphore;
 
-  vk::DescriptorSetLayout projectionSetLayout;
-  vk::DescriptorSetLayout textureSetLayout;
-  vk::DescriptorSetLayout objectSetLayout;
-  vk::DescriptorSetLayout lightSetLayout;
-  vk::DescriptorSetLayout materialSetLayout;
+  vk::DescriptorSetLayout imageSamplerLayout;
+  vk::DescriptorSetLayout uniformLayout;
+  
+  Buffer uniformBuffer;
 
+  Descriptor uniformDescriptor;
+  Descriptor imageSamplerDescriptor;
+  
   vk::CommandPool commandPool;
-  std::vector<vk::CommandBuffer> commadBuffers;
+  vk::CommandBuffer commandBuffer;
 
-  uint16_t MAX_CONCURRENT_FRAMES = 3;
-  uint16_t frame = 0;
   bool shouldBeResized = false;
 
   vk::Viewport viewport;
@@ -100,8 +92,10 @@ class Engine {
   void createQueue();
   void createSyncPrimitives();
   void createDescriptorSetLayouts();
+  void createUniformBuffer();
+  void createDescriptors();
   void createCommandPool();
-  void createCommandBuffers();
+  void createCommandBuffer();
   void createSampler();
   void createPipeline();
 };

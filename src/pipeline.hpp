@@ -15,8 +15,6 @@ class Pipeline {
   std::vector<vk::VertexInputBindingDescription> inputBindings;
   std::vector<vk::VertexInputAttributeDescription> inputAttributes;
 
-  uint32_t swapchainImageCount;
-
   vk::Viewport viewport;
   vk::Rect2D scissors;
 
@@ -27,7 +25,6 @@ class Pipeline {
            const vk::Device& device,
            const vk::Viewport& viewport,
            const vk::Rect2D& scissors,
-           const uint32_t swapchainImageCount,
            const std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts);
 
   void destroy(const vk::Device& device);

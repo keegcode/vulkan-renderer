@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include "vk_mem_alloc.h"
@@ -31,18 +32,15 @@ class Buffer {
          VmaAllocationCreateFlags createFlags);
 
   static Buffer createUniformBuffer(const VmaAllocator& allocator,
-                                    const vk::DeviceSize size) {
-    return Buffer{allocator, size,
-                  vk::BufferUsageFlagBits::eUniformBuffer |
-                      vk::BufferUsageFlagBits::eShaderDeviceAddress};
-  }
+                                    const void* data,
+                                    const vk::DeviceSize size);
 
   static void copyToImage(const VmaAllocator& allocator,
                           const vk::Device& device,
                           const vk::CommandPool& commandPool,
                           const vk::Queue& transferQueue,
                           const vk::Image& image,
-                          unsigned char* srcData,
+                          uint8_t* srcData,
                           vk::DeviceSize size,
                           const vk::Extent3D& extent);
 

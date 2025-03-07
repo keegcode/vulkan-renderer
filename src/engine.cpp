@@ -1,17 +1,20 @@
 #include "engine.hpp"
+#include <vulkan/vulkan_core.h>
 #include "VkBootstrap.h"
 #include "buffer.hpp"
-#include "descriptor.hpp"
 #include "image.hpp"
 #include "pipeline.hpp"
 #include "scene.hpp"
 #include "utils.hpp"
 
+#include <cstdint>
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_transform.hpp>
+#include <string_view>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
+#include <vulkan/vulkan_structs.hpp>
 
 void Engine::init(const Display& d) {
   display = d;
@@ -23,9 +26,11 @@ void Engine::init(const Display& d) {
   createQueue();
   createSyncPrimitives();
   createCommandPool();
-  createCommandBuffers();
+  createCommandBuffer();
   createSampler();
   createDescriptorSetLayouts();
+  createUniformBuffer();
+  createDescriptors();
   createDepthImage();
   createViewportAndScissors();
   createPipeline();
@@ -34,8 +39,8 @@ void Engine::init(const Display& d) {
 void Engine::destroySwapchainResources() {
   vk::Device d = device.device;
 
-  for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-    d.destroyImageView(swapchainImageViews[i]);
+  for (const vk::ImageView imageView : swapchainImageViews) {
+    d.destroyImageView(imageView);
   }
 
   d.destroyImageView(depthImage.view);
@@ -60,7 +65,7 @@ void Engine::rebuiltSwapchain() {
 void Engine::drawFrame(float deltaTime) {
   vk::Device d = device.device;
 
-  if (d.waitForFences(1, &fences[frame], 1, UINT64_MAX) !=
+  if (d.waitForFences(1, &fence, 1, UINT64_MAX) !=
       vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to wait for fence"};
   };
@@ -74,7 +79,7 @@ void Engine::drawFrame(float deltaTime) {
 
   uint32_t imageIndex;
   vk::Result acquireResult = d.acquireNextImageKHR(
-      swap, UINT64_MAX, presentCompleteSemaphores[frame], nullptr, &imageIndex);
+      swap, UINT64_MAX, presentCompleteSemaphore, nullptr, &imageIndex);
 
   vk::ImageView swapImageView = swapchainImageViews[imageIndex];
   vk::Image swapImage = swapchainImages[imageIndex];
@@ -94,11 +99,9 @@ void Engine::drawFrame(float deltaTime) {
       break;
   }
 
-  if (d.resetFences(1, &fences[frame]) != vk::Result::eSuccess) {
+  if (d.resetFences(1, &fence) != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to reset fence"};
   };
-
-  vk::CommandBuffer commandBuffer = commadBuffers[frame];
 
   commandBuffer.reset();
 
@@ -203,78 +206,45 @@ void Engine::drawFrame(float deltaTime) {
   commandBuffer.setViewport(0, 1, &viewport);
   commandBuffer.setScissor(0, 1, &scissors);
 
-  vk::DeviceSize offsets[1] = {0};
+  std::array<vk::DeviceSize, 1> offsets = {0};
 
-  for (Object& object : objects) {
+  for (size_t i = 0; i < objects.size(); i++) {
+    const Object& object = objects[i];
     const Mesh& mesh = meshes[object.meshIdx];
-    const Texture& texture = textures[object.textureIdx];
     const Material& material = materials[object.materialIdx];
+    const Texture& texture = textures[object.textureIdx];
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                pipeline.graphicsPipeline);
 
-    projection.properties.view =
-        glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
+    projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
 
     vmaCopyMemoryToAllocation(allocator, &projection,
-                              projection.buffer.allocation, 0,
-                              sizeof(ProjectionProperties));
+                              uniformBuffer.allocation, 0,
+                              sizeof(Projection));
 
-    vmaCopyMemoryToAllocation(allocator, &object.properties,
-                              object.buffer.allocation, 0,
-                              sizeof(ObjectProperties));
+    vmaCopyMemoryToAllocation(allocator, &light,
+                              uniformBuffer.allocation, sizeof(Projection),
+                              sizeof(Light));
 
-    vmaCopyMemoryToAllocation(allocator, &light.properties,
-                              light.buffer.allocation, 0,
-                              sizeof(LightProperties));
+    vmaCopyMemoryToAllocation(allocator, &material,
+                              uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx,
+                              sizeof(Material));
 
-    vmaCopyMemoryToAllocation(allocator, &material.properties,
-                              material.buffer.allocation, 0, sizeof(Material));
+    vmaCopyMemoryToAllocation(allocator, &material,
+                              uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx + sizeof(Object) * i,
+                              sizeof(Object));
 
-    std::array<vk::DescriptorBufferBindingInfoEXT, 5> bindingInfo{};
+    vmaCopyMemoryToAllocation(allocator, &light,
+                              uniformBuffer.allocation, sizeof(Projection),
+                              sizeof(Light));
 
-    bindingInfo[0] =
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                      vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
-            .setAddress(texture.descriptor.address.deviceAddress);
+    commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
+                                    offsets.data());
 
-    bindingInfo[1] =
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(projection.descriptor.address.deviceAddress);
-
-    bindingInfo[2] =
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(object.descriptor.address.deviceAddress);
-
-    bindingInfo[3] =
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(light.descriptor.address.deviceAddress);
-
-    bindingInfo[4] =
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(material.descriptor.address.deviceAddress);
-
-    commandBuffer.bindDescriptorBuffersEXT(bindingInfo, dld);
-
-    std::array<const uint32_t, 5> bufferIndices = {0, 1, 2, 3, 4};
-
-    std::array<const vk::DeviceSize, 5> bufferOffset = {
-        texture.descriptor.offset, projection.descriptor.offset,
-        object.descriptor.offset, light.descriptor.offset,
-        material.descriptor.offset};
-
-    commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 5,
-        bufferIndices.data(), bufferOffset.data(), dld);
-
-    commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
     commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
                                   vk::IndexType::eUint16);
+
     commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
   }
 
@@ -288,14 +258,16 @@ void Engine::drawFrame(float deltaTime) {
   vk::SubmitInfo submitInfo =
       vk::SubmitInfo{}
           .setWaitSemaphoreCount(1)
-          .setWaitSemaphores(presentCompleteSemaphores[frame])
+          .setWaitSemaphores(presentCompleteSemaphore)
           .setCommandBuffers(commandBuffer)
           .setCommandBufferCount(1)
-          .setSignalSemaphores(renderCompleteSemaphores[frame])
+          .setSignalSemaphores(renderCompleteSemaphore)
           .setSignalSemaphoreCount(1)
           .setWaitDstStageMask(waitStage);
 
-  if (queue.submit(1, &submitInfo, fences[frame]) != vk::Result::eSuccess) {
+  vk::Result queueSubmitResult = queue.submit(1, &submitInfo, fence);
+
+  if (queueSubmitResult != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to submit to queue"};
   };
 
@@ -304,7 +276,7 @@ void Engine::drawFrame(float deltaTime) {
   vk::PresentInfoKHR presentInfo =
       vk::PresentInfoKHR{}
           .setWaitSemaphoreCount(1)
-          .setWaitSemaphores(renderCompleteSemaphores[frame])
+          .setWaitSemaphores(renderCompleteSemaphore)
           .setSwapchainCount(1)
           .setSwapchains(swap)
           .setImageIndices(imageIndices);
@@ -327,8 +299,6 @@ void Engine::drawFrame(float deltaTime) {
       throw std::runtime_error{"Failed to presentKHR"};
       break;
   }
-
-  frame = (frame + 1) % MAX_CONCURRENT_FRAMES;
 };
 
 void Engine::processInput(float deltaTime) {
@@ -402,15 +372,9 @@ void Engine::destroy() {
 
   d.waitIdle();
 
-  for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-    d.destroyFence(fences[i]);
-    d.destroySemaphore(renderCompleteSemaphores[i]);
-    d.destroySemaphore(presentCompleteSemaphores[i]);
-  }
-
-  for (Object& object : objects) {
-    object.destroy(allocator);
-  }
+  d.destroyFence(fence);
+  d.destroySemaphore(renderCompleteSemaphore);
+  d.destroySemaphore(presentCompleteSemaphore);
 
   for (Texture& texture : textures) {
     texture.destroy(allocator, d);
@@ -420,24 +384,20 @@ void Engine::destroy() {
     mesh.destroy(allocator);
   }
 
-  for (Material& material : materials) {
-    material.destroy(allocator);
-  }
-
   pipeline.destroy(d);
-
-  light.destroy(allocator);
 
   destroySwapchainResources();
 
   d.destroySampler(sampler);
   d.destroyCommandPool(commandPool);
 
-  d.destroyDescriptorSetLayout(objectSetLayout);
-  d.destroyDescriptorSetLayout(textureSetLayout);
-  d.destroyDescriptorSetLayout(projectionSetLayout);
-  d.destroyDescriptorSetLayout(lightSetLayout);
-  d.destroyDescriptorSetLayout(materialSetLayout);
+  d.destroyDescriptorSetLayout(uniformLayout);
+  d.destroyDescriptorSetLayout(imageSamplerLayout);
+
+  uniformBuffer.destroy(allocator);
+
+  uniformDescriptor.destroy(allocator);
+  imageSamplerDescriptor.destroy(allocator);
 
   vkb::destroy_swapchain(swapchain);
   vkb::destroy_surface(instance, surface);
@@ -472,7 +432,7 @@ void Engine::pickPhysicalDevice() {
   surface = display.createVulkanSurface(instance.instance);
 
   std::vector<const char*> extensions = {
-      vk::EXTDescriptorBufferExtensionName,
+    vk::EXTDescriptorBufferExtensionName,
   };
 
   vkb::Result<vkb::PhysicalDevice> physicalDeviceResult =
@@ -503,9 +463,8 @@ void Engine::pickPhysicalDevice() {
   physicalDevice = physicalDeviceResult.value();
   physicalDeviceProperties.pNext = &descriptorBufferProperties;
 
-  vk::PhysicalDevice pd{physicalDevice.physical_device};
-
-  pd.getProperties2(&physicalDeviceProperties);
+  vk::PhysicalDevice{physicalDevice.physical_device}
+    .getProperties2(&physicalDeviceProperties);
 };
 
 void Engine::pickDevice() {
@@ -538,13 +497,13 @@ void Engine::createAllocator() {
 };
 
 void Engine::createSwapchain() {
-  int w, h;
+  int32_t w, h;
   SDL_GetWindowSize(display.window, &w, &h);
 
   vk::Extent2D extent = vk::Extent2D{}.setWidth(w).setHeight(h);
 
   swapchain =
-      utils::createSwapchain(device, extent, MAX_CONCURRENT_FRAMES, &swapchain);
+      utils::createSwapchain(device, extent, 1, &swapchain);
 
   vkb::Result<std::vector<VkImageView>> imageViewsResult =
       swapchain.get_image_views();
@@ -604,18 +563,12 @@ void Engine::createQueue() {
 };
 
 void Engine::createSyncPrimitives() {
-  fences.resize(MAX_CONCURRENT_FRAMES);
-  renderCompleteSemaphores.resize(MAX_CONCURRENT_FRAMES);
-  presentCompleteSemaphores.resize(MAX_CONCURRENT_FRAMES);
-
   vk::Device d = device.device;
 
-  for (size_t i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-    fences[i] = d.createFence(
-        vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
-    renderCompleteSemaphores[i] = d.createSemaphore(vk::SemaphoreCreateInfo{});
-    presentCompleteSemaphores[i] = d.createSemaphore(vk::SemaphoreCreateInfo{});
-  }
+  fence = d.createFence(
+      vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+  renderCompleteSemaphore = d.createSemaphore(vk::SemaphoreCreateInfo{});
+  presentCompleteSemaphore = d.createSemaphore(vk::SemaphoreCreateInfo{});
 };
 
 void Engine::createCommandPool() {
@@ -629,18 +582,16 @@ void Engine::createCommandPool() {
   commandPool = d.createCommandPool(commandPoolCreateInfo, nullptr);
 };
 
-void Engine::createCommandBuffers() {
-  commadBuffers.resize(MAX_CONCURRENT_FRAMES);
+void Engine::createCommandBuffer() {
   vk::Device d = device.device;
 
   vk::CommandBufferAllocateInfo commandBufferAllocateInfo =
       vk::CommandBufferAllocateInfo{}
           .setCommandPool(commandPool)
-          .setCommandBufferCount(MAX_CONCURRENT_FRAMES)
+          .setCommandBufferCount(1)
           .setLevel(vk::CommandBufferLevel::ePrimary);
 
-  if (d.allocateCommandBuffers(&commandBufferAllocateInfo,
-                               commadBuffers.data()) != vk::Result::eSuccess) {
+  if (d.allocateCommandBuffers(&commandBufferAllocateInfo, &commandBuffer) != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to allocate a command buffer"};
   };
 };
@@ -649,15 +600,18 @@ void Engine::createPipeline() {
   vk::Device d = vk::Device{device};
 
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      textureSetLayout, projectionSetLayout, objectSetLayout, lightSetLayout,
-      materialSetLayout};
+    imageSamplerLayout, 
+    uniformLayout,
+    uniformLayout,
+    uniformLayout,
+    uniformLayout,
+  };
 
   pipeline = Pipeline{Shader{d, "./shaders/shader.vert.glsl.spv"},
                       Shader{d, "./shaders/shader.frag.glsl.spv"},
                       vk::Device{device},
                       viewport,
                       scissors,
-                      MAX_CONCURRENT_FRAMES,
                       descriptorSetLayouts};
 };
 
@@ -679,7 +633,7 @@ void Engine::createSampler() {
 void Engine::createDescriptorSetLayouts() {
   vk::Device d = vk::Device{device};
 
-  vk::DescriptorSetLayoutBinding samplerBinding =
+  vk::DescriptorSetLayoutBinding imageSamplerBinding =
       vk::DescriptorSetLayoutBinding{}
           .setBinding(0)
           .setDescriptorCount(1)
@@ -687,161 +641,53 @@ void Engine::createDescriptorSetLayouts() {
           .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
           .setImmutableSamplers(sampler);
 
-  vk::DescriptorSetLayoutBinding projectionBidning =
+  vk::DescriptorSetLayoutBinding uniformBinding =
       vk::DescriptorSetLayoutBinding{}
           .setBinding(0)
           .setDescriptorCount(1)
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
-  vk::DescriptorSetLayoutBinding objectBidning =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  vk::DescriptorSetLayoutBinding lightBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  vk::DescriptorSetLayoutBinding materialBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
+  vk::DescriptorSetLayoutCreateInfo imageSamplerSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(samplerBinding)
+          .setBindings(imageSamplerBinding)
           .setBindingCount(1)
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
-  vk::DescriptorSetLayoutCreateInfo objectSetLayoutCreateInfo =
+  vk::DescriptorSetLayoutCreateInfo uniformSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(objectBidning)
+          .setBindings(uniformBinding)
           .setBindingCount(1)
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
-  vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(lightBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
+  imageSamplerLayout =
+      d.createDescriptorSetLayout(imageSamplerSetLayoutCreateInfo, nullptr);
 
-  vk::DescriptorSetLayoutCreateInfo projectionSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(projectionBidning)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::DescriptorSetLayoutCreateInfo materialSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(materialBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  textureSetLayout =
-      d.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
-  projectionSetLayout =
-      d.createDescriptorSetLayout(projectionSetLayoutCreateInfo, nullptr);
-  objectSetLayout =
-      d.createDescriptorSetLayout(objectSetLayoutCreateInfo, nullptr);
-  lightSetLayout =
-      d.createDescriptorSetLayout(lightSetLayoutCreateInfo, nullptr);
-  materialSetLayout =
-      d.createDescriptorSetLayout(materialSetLayoutCreateInfo, nullptr);
+  uniformLayout =
+      d.createDescriptorSetLayout(uniformSetLayoutCreateInfo, nullptr);
 }
 
-void Engine::setProjection(const ProjectionProperties& properties) {
-  projection = Projection{
-      properties,
-      Descriptor{dld, descriptorBufferProperties, vk::Device{device.device},
-                 projectionSetLayout, vk::DescriptorType::eUniformBuffer,
-                 allocator,
-                 vk::BufferUsageFlagBits::eUniformBuffer |
-                     vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                     vk::BufferUsageFlagBits::eShaderDeviceAddress},
-      Buffer::createUniformBuffer(allocator, sizeof(ProjectionProperties))};
+void Engine::createUniformBuffer() {
+  uniformBuffer = Buffer{
+    allocator, 
+    sizeof(Projection) + sizeof(Light) + sizeof(Material) * materials.size() + sizeof(Object) * objects.size(),
+    vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress};
 }
 
-void Engine::setLight(const LightProperties& properties) {
-  Light l{
-      properties,
-      Descriptor{dld, descriptorBufferProperties, vk::Device{device.device},
-                 lightSetLayout, vk::DescriptorType::eUniformBuffer, allocator,
-                 vk::BufferUsageFlagBits::eUniformBuffer |
-                     vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                     vk::BufferUsageFlagBits::eShaderDeviceAddress},
-      Buffer::createUniformBuffer(allocator, sizeof(LightProperties))};
-
-  ObjectProperties object{};
-
-  object.translation = glm::translate(object.translation, properties.pos);
+void Engine::setLight(const Light& l) {
+  Object object{};
+  object.matrix = glm::scale(glm::translate(object.matrix, light.pos), glm::vec3{0.5f});
   object.color = glm::vec3{1.0};
-  object.scale = glm::scale(object.scale, glm::vec3{0.5});
-
-  addObject(object, 0, 0, 0);
+  
+  objects.push_back(object);
 
   light = l;
-
-  light.descriptor.setUniformBuffer(dld, vk::Device{device.device},
-                                    descriptorBufferProperties, light.buffer);
-}
-
-void Engine::addObject(const ObjectProperties& properties,
-                       const uint32_t meshIdx,
-                       const uint32_t textureIdx,
-                       const uint32_t materialIdx) {
-  Object object{
-      properties,
-      Descriptor{dld, descriptorBufferProperties, vk::Device{device.device},
-                 objectSetLayout, vk::DescriptorType::eUniformBuffer, allocator,
-                 vk::BufferUsageFlagBits::eUniformBuffer |
-                     vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                     vk::BufferUsageFlagBits::eShaderDeviceAddress},
-      Buffer::createUniformBuffer(allocator, sizeof(ObjectProperties))};
-
-  object.textureIdx = textureIdx;
-  object.meshIdx = meshIdx;
-  object.materialIdx = materialIdx;
-
-  object.descriptor.setUniformBuffer(dld, vk::Device{device.device},
-                                     descriptorBufferProperties, object.buffer);
-
-  objects.push_back(object);
 }
 
 void Engine::loadMesh(const std::string_view path) {
   meshes.push_back(Mesh{allocator, path});
-}
-
-void Engine::addMaterial(const MaterialProperties& properties) {
-  Material material{
-      properties,
-
-      Descriptor{dld, descriptorBufferProperties, vk::Device{device.device},
-                 materialSetLayout, vk::DescriptorType::eUniformBuffer,
-                 allocator,
-                 vk::BufferUsageFlagBits::eUniformBuffer |
-                     vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                     vk::BufferUsageFlagBits::eShaderDeviceAddress},
-      Buffer::createUniformBuffer(allocator, sizeof(MaterialProperties))};
-
-  material.descriptor.setUniformBuffer(dld, vk::Device{device.device},
-                                       descriptorBufferProperties,
-                                       material.buffer);
-
-  materials.push_back(material);
 }
 
 void Engine::loadTexture(const std::string_view path) {
@@ -849,23 +695,58 @@ void Engine::loadTexture(const std::string_view path) {
               commandPool, queue,
               path,        vk::ImageLayout::eShaderReadOnlyOptimal};
 
-  Descriptor descriptor{
-      dld,
-      descriptorBufferProperties,
-      vk::Device{device.device},
-      textureSetLayout,
-      vk::DescriptorType::eCombinedImageSampler,
-      allocator,
-      vk::BufferUsageFlagBits::eUniformBuffer |
-          vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-          vk::BufferUsageFlagBits::eShaderDeviceAddress |
-          vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT};
-
-  Texture texture{image, descriptor, sampler};
-
-  descriptor.setCombinedImageSampler(dld, vk::Device{device.device},
-                                     descriptorBufferProperties, image.view,
-                                     image.layout, texture.sampler);
+  Texture texture{image};
 
   textures.push_back(texture);
+}
+
+void Engine::createDescriptors() {
+  vk::Device d{device};
+
+  uniformDescriptor.type = vk::DescriptorType::eUniformBuffer;
+  imageSamplerDescriptor.type = vk::DescriptorType::eCombinedImageSampler;
+
+  uniformDescriptor.layoutSize = utils::getAlignedSize(
+    d.getDescriptorSetLayoutSizeEXT(uniformLayout, dld),
+    descriptorBufferProperties.descriptorBufferOffsetAlignment
+  );
+
+  imageSamplerDescriptor.layoutSize = utils::getAlignedSize(
+    d.getDescriptorSetLayoutSizeEXT(imageSamplerLayout, dld),
+    descriptorBufferProperties.descriptorBufferOffsetAlignment
+  );
+  
+  uniformDescriptor.offset = d.getDescriptorSetLayoutBindingOffsetEXT(uniformLayout, 0, dld);
+  imageSamplerDescriptor.offset = d.getDescriptorSetLayoutBindingOffsetEXT(imageSamplerLayout, 0, dld);
+
+  uniformDescriptor.buffer = Buffer{
+    allocator, 
+    uniformDescriptor.layoutSize * (2 + objects.size() + materials.size()),
+    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+    VMA_MEMORY_USAGE_CPU_TO_GPU,
+    VMA_ALLOCATION_CREATE_MAPPED_BIT
+  };
+
+  imageSamplerDescriptor.buffer = Buffer{
+    allocator, 
+    imageSamplerDescriptor.layoutSize * textures.size(),
+    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT | vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+    VMA_MEMORY_USAGE_CPU_TO_GPU,
+    VMA_ALLOCATION_CREATE_MAPPED_BIT
+  };
+
+  uniformDescriptor.address.setDeviceAddress(uniformDescriptor.buffer.getDeviceAddress(d));
+  imageSamplerDescriptor.address.setDeviceAddress(imageSamplerDescriptor.buffer.getDeviceAddress(d));
+
+  uint8_t* imageSamplerDescriptorPtr = reinterpret_cast<uint8_t*>(imageSamplerDescriptor.buffer.allocationInfo.pMappedData);
+  for (size_t i = 0; i < textures.size(); i++) {
+  }
+
+  uint8_t* uniformDescriptorPtr = reinterpret_cast<uint8_t*>(uniformDescriptor.buffer.allocationInfo.pMappedData);
+
+  for (size_t i = 0; i < materials.size(); i++) {
+  }
+
+  for (size_t i = 0; i < objects.size(); i++) {
+  }
 }

@@ -1,4 +1,5 @@
 #include "buffer.hpp"
+#include <cstdint>
 #include "stb_image.h"
 #include "utils.hpp"
 
@@ -76,7 +77,7 @@ void Buffer::copyToImage(const VmaAllocator& allocator,
                          const vk::CommandPool& commandPool,
                          const vk::Queue& transferQueue,
                          const vk::Image& image,
-                         unsigned char* srcData,
+                         uint8_t* srcData,
                          vk::DeviceSize size,
                          const vk::Extent3D& extent) {
   Buffer stagingBuffer =
@@ -119,6 +120,14 @@ void Buffer::copyToImage(const VmaAllocator& allocator,
 
 void Buffer::destroy(const VmaAllocator& allocator) {
   vmaDestroyBuffer(allocator, buffer, allocation);
+}
+
+Buffer Buffer::createUniformBuffer(const VmaAllocator& allocator,
+                                   const void* data,
+                                   const vk::DeviceSize size) {
+  return Buffer{allocator, data, size,
+                vk::BufferUsageFlagBits::eUniformBuffer |
+                    vk::BufferUsageFlagBits::eShaderDeviceAddress};
 }
 
 vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device& device) const {

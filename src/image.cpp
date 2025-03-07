@@ -1,4 +1,5 @@
 #include "image.hpp"
+#include <cstdint>
 #include "buffer.hpp"
 #include "stb_image.h"
 #include "utils.hpp"
@@ -59,9 +60,9 @@ Image::Image(const VmaAllocator& allocator,
              const vk::Queue& transferQueue,
              const std::string_view path,
              vk::ImageLayout l) {
-  int height, width;
+  int32_t height, width;
 
-  unsigned char* data =
+  uint8_t* data =
       stbi_load(path.data(), reinterpret_cast<int*>(&width),
                 reinterpret_cast<int*>(&height), nullptr, STBI_rgb_alpha);
 
