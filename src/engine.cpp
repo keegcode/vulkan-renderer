@@ -231,13 +231,9 @@ void Engine::drawFrame(float deltaTime) {
                               uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx,
                               sizeof(Material));
 
-    vmaCopyMemoryToAllocation(allocator, &material,
-                              uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx + sizeof(Object) * i,
+    vmaCopyMemoryToAllocation(allocator, &object,
+                              uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * materials.size() + sizeof(Object) * i,
                               sizeof(Object));
-
-    vmaCopyMemoryToAllocation(allocator, &light,
-                              uniformBuffer.allocation, sizeof(Projection),
-                              sizeof(Light));
 
     commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
                                     offsets.data());
@@ -738,15 +734,104 @@ void Engine::createDescriptors() {
   uniformDescriptor.address.setDeviceAddress(uniformDescriptor.buffer.getDeviceAddress(d));
   imageSamplerDescriptor.address.setDeviceAddress(imageSamplerDescriptor.buffer.getDeviceAddress(d));
 
-  uint8_t* imageSamplerDescriptorPtr = reinterpret_cast<uint8_t*>(imageSamplerDescriptor.buffer.allocationInfo.pMappedData);
-  for (size_t i = 0; i < textures.size(); i++) {
-  }
+  uint8_t* uniformDescriptorPtr = reinterpret_cast<uint8_t*>(uniformDescriptor.buffer.allocationInfo.pMappedData) + uniformDescriptor.offset;
+  vk::DeviceAddress uniformBufferAddress = uniformBuffer.getDeviceAddress(d);
 
-  uint8_t* uniformDescriptorPtr = reinterpret_cast<uint8_t*>(uniformDescriptor.buffer.allocationInfo.pMappedData);
+  vk::DescriptorAddressInfoEXT uniformProjectionDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
+    .setRange(sizeof(Projection))
+    .setFormat(vk::Format::eUndefined)
+    .setAddress(uniformBufferAddress);
+
+  vk::DescriptorGetInfoEXT uniformProjectionDescriptorInfo = vk::DescriptorGetInfoEXT{}
+    .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformProjectionDescriptorAddressInfo))
+    .setType(uniformDescriptor.type);
+
+  d.getDescriptorEXT(
+    uniformProjectionDescriptorInfo,
+    descriptorBufferProperties.uniformBufferDescriptorSize,
+    uniformDescriptorPtr,
+    dld
+  );
+
+  uniformDescriptorPtr += uniformDescriptor.layoutSize;
+
+  vk::DescriptorAddressInfoEXT uniformLightDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
+    .setRange(sizeof(Light))
+    .setFormat(vk::Format::eUndefined)
+    .setAddress(uniformBufferAddress);
+
+  vk::DescriptorGetInfoEXT uniformLightDescriptorInfo = vk::DescriptorGetInfoEXT{}
+    .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformLightDescriptorAddressInfo))
+    .setType(uniformDescriptor.type);
+
+  d.getDescriptorEXT(
+    uniformLightDescriptorInfo,
+    descriptorBufferProperties.uniformBufferDescriptorSize,
+    uniformDescriptorPtr,
+    dld
+  );
 
   for (size_t i = 0; i < materials.size(); i++) {
+    uniformDescriptorPtr += uniformDescriptor.layoutSize;
+
+    vk::DescriptorAddressInfoEXT uniformMaterialDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
+      .setRange(sizeof(Material))
+      .setFormat(vk::Format::eUndefined)
+      .setAddress(uniformBufferAddress);
+
+    vk::DescriptorGetInfoEXT uniformMaterialDescriptorInfo = vk::DescriptorGetInfoEXT{}
+      .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformMaterialDescriptorAddressInfo))
+      .setType(uniformDescriptor.type);
+
+    d.getDescriptorEXT(
+      uniformMaterialDescriptorInfo,
+      descriptorBufferProperties.uniformBufferDescriptorSize,
+      uniformDescriptorPtr,
+      dld
+    );
   }
 
   for (size_t i = 0; i < objects.size(); i++) {
+    uniformDescriptorPtr += uniformDescriptor.layoutSize;
+
+    vk::DescriptorAddressInfoEXT uniformObjectDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
+      .setRange(sizeof(Object))
+      .setFormat(vk::Format::eUndefined)
+      .setAddress(uniformBufferAddress);
+
+    vk::DescriptorGetInfoEXT uniformObjectDescriptorInfo = vk::DescriptorGetInfoEXT{}
+      .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformObjectDescriptorAddressInfo))
+      .setType(uniformDescriptor.type);
+
+    d.getDescriptorEXT(
+      uniformObjectDescriptorInfo,
+      descriptorBufferProperties.uniformBufferDescriptorSize,
+      uniformDescriptorPtr,
+      dld
+    );
+  }
+
+  uint8_t* imageSamplerDescriptorPtr = reinterpret_cast<uint8_t*>(imageSamplerDescriptor.buffer.allocationInfo.pMappedData) + imageSamplerDescriptor.offset;
+
+  for (size_t i = 0; i < textures.size(); i++) {
+    const Texture& texture = textures[i];
+
+    vk::DescriptorImageInfo imageSamplerDescriptorImageInfo = vk::DescriptorImageInfo{}
+      .setSampler(sampler)
+      .setImageView(texture.image.view)
+      .setImageLayout(texture.image.layout);
+
+    vk::DescriptorGetInfoEXT imageSamplerDescriptorInfo = vk::DescriptorGetInfoEXT{}
+      .setData(vk::DescriptorDataEXT{}.setPCombinedImageSampler(&imageSamplerDescriptorImageInfo))
+      .setType(imageSamplerDescriptor.type);
+
+    d.getDescriptorEXT(
+      imageSamplerDescriptorInfo,
+      descriptorBufferProperties.combinedImageSamplerDescriptorSize,
+      imageSamplerDescriptorPtr,
+      dld
+    );
+
+    imageSamplerDescriptorPtr += imageSamplerDescriptor.layoutSize;
   }
 }
