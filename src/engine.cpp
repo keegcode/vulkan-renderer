@@ -7,6 +7,7 @@
 #include "scene.hpp"
 #include "utils.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_transform.hpp>
@@ -16,7 +17,7 @@
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
 
-void Engine::init(const Display& d) {
+void Engine::init(const Display& d, const EngineState& state) {
   display = d;
   createInstance();
   pickPhysicalDevice();
@@ -29,6 +30,7 @@ void Engine::init(const Display& d) {
   createCommandBuffer();
   createSampler();
   createDescriptorSetLayouts();
+  loadState(state);
   createUniformBuffer();
   createDescriptors();
   createDepthImage();
@@ -65,8 +67,7 @@ void Engine::rebuiltSwapchain() {
 void Engine::drawFrame(float deltaTime) {
   vk::Device d = device.device;
 
-  if (d.waitForFences(1, &fence, 1, UINT64_MAX) !=
-      vk::Result::eSuccess) {
+  if (d.waitForFences(1, &fence, 1, UINT64_MAX) != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to wait for fence"};
   };
 
@@ -212,28 +213,94 @@ void Engine::drawFrame(float deltaTime) {
     const Object& object = objects[i];
     const Mesh& mesh = meshes[object.meshIdx];
     const Material& material = materials[object.materialIdx];
-    const Texture& texture = textures[object.textureIdx];
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                pipeline.graphicsPipeline);
 
-    projection.view = glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
+    projection.view =
+        glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
 
-    vmaCopyMemoryToAllocation(allocator, &projection,
-                              uniformBuffer.allocation, 0,
-                              sizeof(Projection));
+    vmaCopyMemoryToAllocation(allocator, &projection, uniformBuffer.allocation,
+                              0, sizeof(Projection));
 
-    vmaCopyMemoryToAllocation(allocator, &light,
-                              uniformBuffer.allocation, sizeof(Projection),
-                              sizeof(Light));
+    vmaCopyMemoryToAllocation(allocator, &light, uniformBuffer.allocation,
+                              sizeof(Projection), sizeof(Light));
 
-    vmaCopyMemoryToAllocation(allocator, &material,
-                              uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx,
+    vmaCopyMemoryToAllocation(allocator, &material, uniformBuffer.allocation,
+                              sizeof(Projection) + sizeof(Light) +
+                                  sizeof(Material) * object.materialIdx,
                               sizeof(Material));
 
-    vmaCopyMemoryToAllocation(allocator, &object,
-                              uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * materials.size() + sizeof(Object) * i,
-                              sizeof(Object));
+    vmaCopyMemoryToAllocation(allocator, &object, uniformBuffer.allocation,
+                              sizeof(Projection) + sizeof(Light) +
+                                  sizeof(Material) * materials.size() +
+                                  offsetof(Object, textureIdx) * i,
+                              offsetof(Object, textureIdx));
+
+    Projection p;
+    Light l;
+    Material m;
+    Object o;
+
+    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, 0, &p, sizeof(Projection));
+    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, sizeof(Projection), &l, sizeof(Light));
+    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx, &m, sizeof(Material));
+    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx + offsetof(Object, textureIdx) * i, &o, offsetof(Object, textureIdx));
+
+    std::array<vk::DescriptorBufferBindingInfoEXT, 5> bindingInfo{
+        vk::DescriptorBufferBindingInfoEXT{}
+            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
+                      vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
+            .setAddress(imageSamplerDescriptor.address.deviceAddress),
+        vk::DescriptorBufferBindingInfoEXT{}
+            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+            .setAddress(uniformDescriptor.address.deviceAddress),
+        vk::DescriptorBufferBindingInfoEXT{}
+            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+            .setAddress(uniformDescriptor.address.deviceAddress),
+        vk::DescriptorBufferBindingInfoEXT{}
+            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+            .setAddress(uniformDescriptor.address.deviceAddress),
+        vk::DescriptorBufferBindingInfoEXT{}
+            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+            .setAddress(uniformDescriptor.address.deviceAddress)};
+
+    commandBuffer.bindDescriptorBuffersEXT(bindingInfo, dld);
+
+    vk::DeviceSize imageSamplerOffset = imageSamplerDescriptor.layoutSize * object.textureIdx;
+    uint32_t imageSamplerIndex = 0;
+
+    vk::DeviceSize projectionOffset = 0;
+    uint32_t projectionIndex = 1;
+
+    vk::DeviceSize lightOffset = uniformDescriptor.layoutSize;
+    uint32_t lightIndex = 2;
+
+    vk::DeviceSize materialOffset = lightOffset + uniformDescriptor.layoutSize * object.materialIdx;
+    uint32_t materialIndex = 3;
+
+    vk::DeviceSize objectOffset = materialOffset + uniformDescriptor.layoutSize * i; 
+    uint32_t objectIndex = 4;
+
+    commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 1,
+        &imageSamplerIndex, &imageSamplerOffset, dld);
+
+    commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 1, 1,
+        &projectionIndex, &projectionOffset, dld);
+
+    commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 1, 1,
+        &lightIndex, &lightOffset, dld);
+
+    commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 3, 1,
+        &materialIndex, &materialOffset, dld);
+
+    commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 4, 1,
+        &objectIndex, &objectOffset, dld);
 
     commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
                                     offsets.data());
@@ -251,15 +318,14 @@ void Engine::drawFrame(float deltaTime) {
   vk::Flags<vk::PipelineStageFlagBits> waitStage =
       vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
-  vk::SubmitInfo submitInfo =
-      vk::SubmitInfo{}
-          .setWaitSemaphoreCount(1)
-          .setWaitSemaphores(presentCompleteSemaphore)
-          .setCommandBuffers(commandBuffer)
-          .setCommandBufferCount(1)
-          .setSignalSemaphores(renderCompleteSemaphore)
-          .setSignalSemaphoreCount(1)
-          .setWaitDstStageMask(waitStage);
+  vk::SubmitInfo submitInfo = vk::SubmitInfo{}
+                                  .setWaitSemaphoreCount(1)
+                                  .setWaitSemaphores(presentCompleteSemaphore)
+                                  .setCommandBuffers(commandBuffer)
+                                  .setCommandBufferCount(1)
+                                  .setSignalSemaphores(renderCompleteSemaphore)
+                                  .setSignalSemaphoreCount(1)
+                                  .setWaitDstStageMask(waitStage);
 
   vk::Result queueSubmitResult = queue.submit(1, &submitInfo, fence);
 
@@ -428,7 +494,7 @@ void Engine::pickPhysicalDevice() {
   surface = display.createVulkanSurface(instance.instance);
 
   std::vector<const char*> extensions = {
-    vk::EXTDescriptorBufferExtensionName,
+      vk::EXTDescriptorBufferExtensionName,
   };
 
   vkb::Result<vkb::PhysicalDevice> physicalDeviceResult =
@@ -459,8 +525,8 @@ void Engine::pickPhysicalDevice() {
   physicalDevice = physicalDeviceResult.value();
   physicalDeviceProperties.pNext = &descriptorBufferProperties;
 
-  vk::PhysicalDevice{physicalDevice.physical_device}
-    .getProperties2(&physicalDeviceProperties);
+  vk::PhysicalDevice{physicalDevice.physical_device}.getProperties2(
+      &physicalDeviceProperties);
 };
 
 void Engine::pickDevice() {
@@ -498,8 +564,7 @@ void Engine::createSwapchain() {
 
   vk::Extent2D extent = vk::Extent2D{}.setWidth(w).setHeight(h);
 
-  swapchain =
-      utils::createSwapchain(device, extent, 1, &swapchain);
+  swapchain = utils::createSwapchain(device, extent, 4, &swapchain);
 
   vkb::Result<std::vector<VkImageView>> imageViewsResult =
       swapchain.get_image_views();
@@ -587,7 +652,8 @@ void Engine::createCommandBuffer() {
           .setCommandBufferCount(1)
           .setLevel(vk::CommandBufferLevel::ePrimary);
 
-  if (d.allocateCommandBuffers(&commandBufferAllocateInfo, &commandBuffer) != vk::Result::eSuccess) {
+  if (d.allocateCommandBuffers(&commandBufferAllocateInfo, &commandBuffer) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to allocate a command buffer"};
   };
 };
@@ -596,11 +662,8 @@ void Engine::createPipeline() {
   vk::Device d = vk::Device{device};
 
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-    imageSamplerLayout, 
-    uniformLayout,
-    uniformLayout,
-    uniformLayout,
-    uniformLayout,
+      imageSamplerLayout, uniformLayout, uniformLayout,
+      uniformLayout,      uniformLayout,
   };
 
   pipeline = Pipeline{Shader{d, "./shaders/shader.vert.glsl.spv"},
@@ -666,27 +729,31 @@ void Engine::createDescriptorSetLayouts() {
 }
 
 void Engine::createUniformBuffer() {
-  uniformBuffer = Buffer{
-    allocator, 
-    sizeof(Projection) + sizeof(Light) + sizeof(Material) * materials.size() + sizeof(Object) * objects.size(),
-    vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress};
+  uniformBuffer = Buffer{allocator,
+                         sizeof(Projection) + sizeof(Light) +
+                             sizeof(Material) * materials.size() +
+                             offsetof(Object, textureIdx) * objects.size(),
+                         vk::BufferUsageFlagBits::eUniformBuffer |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress
+  };
 }
 
 void Engine::setLight(const Light& l) {
   Object object{};
-  object.matrix = glm::scale(glm::translate(object.matrix, light.pos), glm::vec3{0.5f});
+  object.matrix =
+      glm::scale(glm::translate(object.matrix, light.pos), glm::vec3{0.5f});
   object.color = glm::vec3{1.0};
-  
+
   objects.push_back(object);
 
   light = l;
 }
 
-void Engine::loadMesh(const std::string_view path) {
+void Engine::loadMesh(const std::string& path) {
   meshes.push_back(Mesh{allocator, path});
 }
 
-void Engine::loadTexture(const std::string_view path) {
+void Engine::loadTexture(const std::string& path) {
   Image image{allocator,   vk::Device{device},
               commandPool, queue,
               path,        vk::ImageLayout::eShaderReadOnlyOptimal};
@@ -703,135 +770,169 @@ void Engine::createDescriptors() {
   imageSamplerDescriptor.type = vk::DescriptorType::eCombinedImageSampler;
 
   uniformDescriptor.layoutSize = utils::getAlignedSize(
-    d.getDescriptorSetLayoutSizeEXT(uniformLayout, dld),
-    descriptorBufferProperties.descriptorBufferOffsetAlignment
-  );
+      d.getDescriptorSetLayoutSizeEXT(uniformLayout, dld),
+      descriptorBufferProperties.descriptorBufferOffsetAlignment);
 
   imageSamplerDescriptor.layoutSize = utils::getAlignedSize(
-    d.getDescriptorSetLayoutSizeEXT(imageSamplerLayout, dld),
-    descriptorBufferProperties.descriptorBufferOffsetAlignment
-  );
-  
-  uniformDescriptor.offset = d.getDescriptorSetLayoutBindingOffsetEXT(uniformLayout, 0, dld);
-  imageSamplerDescriptor.offset = d.getDescriptorSetLayoutBindingOffsetEXT(imageSamplerLayout, 0, dld);
+      d.getDescriptorSetLayoutSizeEXT(imageSamplerLayout, dld),
+      descriptorBufferProperties.descriptorBufferOffsetAlignment);
+
+  uniformDescriptor.offset =
+      d.getDescriptorSetLayoutBindingOffsetEXT(uniformLayout, 0, dld);
+  imageSamplerDescriptor.offset =
+      d.getDescriptorSetLayoutBindingOffsetEXT(imageSamplerLayout, 0, dld);
 
   uniformDescriptor.buffer = Buffer{
-    allocator, 
-    uniformDescriptor.layoutSize * (2 + objects.size() + materials.size()),
-    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-    VMA_MEMORY_USAGE_CPU_TO_GPU,
-    VMA_ALLOCATION_CREATE_MAPPED_BIT
-  };
+      allocator,
+      uniformDescriptor.layoutSize * (2 + objects.size() + materials.size()),
+      vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
+          vk::BufferUsageFlagBits::eShaderDeviceAddress,
+      VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
 
-  imageSamplerDescriptor.buffer = Buffer{
-    allocator, 
-    imageSamplerDescriptor.layoutSize * textures.size(),
-    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT | vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-    VMA_MEMORY_USAGE_CPU_TO_GPU,
-    VMA_ALLOCATION_CREATE_MAPPED_BIT
-  };
+  imageSamplerDescriptor.buffer =
+      Buffer{allocator, imageSamplerDescriptor.layoutSize * textures.size(),
+             vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
+                 vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
+                 vk::BufferUsageFlagBits::eShaderDeviceAddress,
+             VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
 
-  uniformDescriptor.address.setDeviceAddress(uniformDescriptor.buffer.getDeviceAddress(d));
-  imageSamplerDescriptor.address.setDeviceAddress(imageSamplerDescriptor.buffer.getDeviceAddress(d));
+  uniformDescriptor.address.setDeviceAddress(
+      uniformDescriptor.buffer.getDeviceAddress(d));
 
-  uint8_t* uniformDescriptorPtr = reinterpret_cast<uint8_t*>(uniformDescriptor.buffer.allocationInfo.pMappedData) + uniformDescriptor.offset;
+  imageSamplerDescriptor.address.setDeviceAddress(
+      imageSamplerDescriptor.buffer.getDeviceAddress(d));
+
+  uint8_t* uniformDescriptorPtr =
+      reinterpret_cast<uint8_t*>(
+          uniformDescriptor.buffer.allocationInfo.pMappedData) +
+      uniformDescriptor.offset;
+
   vk::DeviceAddress uniformBufferAddress = uniformBuffer.getDeviceAddress(d);
+  uint32_t uniformAddressOffset = 0;
 
-  vk::DescriptorAddressInfoEXT uniformProjectionDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
-    .setRange(sizeof(Projection))
-    .setFormat(vk::Format::eUndefined)
-    .setAddress(uniformBufferAddress);
+  vk::DescriptorAddressInfoEXT uniformProjectionDescriptorAddressInfo =
+      vk::DescriptorAddressInfoEXT{}
+          .setRange(sizeof(Projection))
+          .setFormat(vk::Format::eUndefined)
+          .setAddress(uniformBufferAddress + uniformAddressOffset);
 
-  vk::DescriptorGetInfoEXT uniformProjectionDescriptorInfo = vk::DescriptorGetInfoEXT{}
-    .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformProjectionDescriptorAddressInfo))
-    .setType(uniformDescriptor.type);
+  vk::DescriptorGetInfoEXT uniformProjectionDescriptorInfo =
+      vk::DescriptorGetInfoEXT{}
+          .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
+              &uniformProjectionDescriptorAddressInfo))
+          .setType(uniformDescriptor.type);
 
-  d.getDescriptorEXT(
-    uniformProjectionDescriptorInfo,
-    descriptorBufferProperties.uniformBufferDescriptorSize,
-    uniformDescriptorPtr,
-    dld
-  );
+  d.getDescriptorEXT(uniformProjectionDescriptorInfo,
+                     descriptorBufferProperties.uniformBufferDescriptorSize,
+                     uniformDescriptorPtr, dld);
 
   uniformDescriptorPtr += uniformDescriptor.layoutSize;
+  uniformAddressOffset += sizeof(Projection);
 
-  vk::DescriptorAddressInfoEXT uniformLightDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
-    .setRange(sizeof(Light))
-    .setFormat(vk::Format::eUndefined)
-    .setAddress(uniformBufferAddress);
+  vk::DescriptorAddressInfoEXT uniformLightDescriptorAddressInfo =
+      vk::DescriptorAddressInfoEXT{}
+          .setRange(sizeof(Light))
+          .setFormat(vk::Format::eUndefined)
+          .setAddress(uniformBufferAddress + uniformAddressOffset);
 
-  vk::DescriptorGetInfoEXT uniformLightDescriptorInfo = vk::DescriptorGetInfoEXT{}
-    .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformLightDescriptorAddressInfo))
-    .setType(uniformDescriptor.type);
+  vk::DescriptorGetInfoEXT uniformLightDescriptorInfo =
+      vk::DescriptorGetInfoEXT{}
+          .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
+              &uniformLightDescriptorAddressInfo))
+          .setType(uniformDescriptor.type);
 
-  d.getDescriptorEXT(
-    uniformLightDescriptorInfo,
-    descriptorBufferProperties.uniformBufferDescriptorSize,
-    uniformDescriptorPtr,
-    dld
-  );
+  d.getDescriptorEXT(uniformLightDescriptorInfo,
+                     descriptorBufferProperties.uniformBufferDescriptorSize,
+                     uniformDescriptorPtr, dld);
+
+  uniformDescriptorPtr += uniformDescriptor.layoutSize;
+  uniformAddressOffset += sizeof(Light);
 
   for (size_t i = 0; i < materials.size(); i++) {
+    vk::DescriptorAddressInfoEXT uniformMaterialDescriptorAddressInfo =
+        vk::DescriptorAddressInfoEXT{}
+            .setRange(sizeof(Material))
+            .setFormat(vk::Format::eUndefined)
+            .setAddress(uniformBufferAddress + uniformAddressOffset);
+
+    vk::DescriptorGetInfoEXT uniformMaterialDescriptorInfo =
+        vk::DescriptorGetInfoEXT{}
+            .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
+                &uniformMaterialDescriptorAddressInfo))
+            .setType(uniformDescriptor.type);
+
+    d.getDescriptorEXT(uniformMaterialDescriptorInfo,
+                       descriptorBufferProperties.uniformBufferDescriptorSize,
+                       uniformDescriptorPtr, dld);
+
     uniformDescriptorPtr += uniformDescriptor.layoutSize;
-
-    vk::DescriptorAddressInfoEXT uniformMaterialDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
-      .setRange(sizeof(Material))
-      .setFormat(vk::Format::eUndefined)
-      .setAddress(uniformBufferAddress);
-
-    vk::DescriptorGetInfoEXT uniformMaterialDescriptorInfo = vk::DescriptorGetInfoEXT{}
-      .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformMaterialDescriptorAddressInfo))
-      .setType(uniformDescriptor.type);
-
-    d.getDescriptorEXT(
-      uniformMaterialDescriptorInfo,
-      descriptorBufferProperties.uniformBufferDescriptorSize,
-      uniformDescriptorPtr,
-      dld
-    );
+    uniformAddressOffset += sizeof(Material);
   }
 
   for (size_t i = 0; i < objects.size(); i++) {
+    vk::DescriptorAddressInfoEXT uniformObjectDescriptorAddressInfo =
+        vk::DescriptorAddressInfoEXT{}
+            .setRange(offsetof(Object, textureIdx))
+            .setFormat(vk::Format::eUndefined)
+            .setAddress(uniformBufferAddress + uniformAddressOffset);
+
+    vk::DescriptorGetInfoEXT uniformObjectDescriptorInfo =
+        vk::DescriptorGetInfoEXT{}
+            .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
+                &uniformObjectDescriptorAddressInfo))
+            .setType(uniformDescriptor.type);
+
+    d.getDescriptorEXT(uniformObjectDescriptorInfo,
+                       descriptorBufferProperties.uniformBufferDescriptorSize,
+                       uniformDescriptorPtr, dld);
+
+    uniformAddressOffset += offsetof(Object, textureIdx);
     uniformDescriptorPtr += uniformDescriptor.layoutSize;
-
-    vk::DescriptorAddressInfoEXT uniformObjectDescriptorAddressInfo = vk::DescriptorAddressInfoEXT{}
-      .setRange(sizeof(Object))
-      .setFormat(vk::Format::eUndefined)
-      .setAddress(uniformBufferAddress);
-
-    vk::DescriptorGetInfoEXT uniformObjectDescriptorInfo = vk::DescriptorGetInfoEXT{}
-      .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(&uniformObjectDescriptorAddressInfo))
-      .setType(uniformDescriptor.type);
-
-    d.getDescriptorEXT(
-      uniformObjectDescriptorInfo,
-      descriptorBufferProperties.uniformBufferDescriptorSize,
-      uniformDescriptorPtr,
-      dld
-    );
   }
 
-  uint8_t* imageSamplerDescriptorPtr = reinterpret_cast<uint8_t*>(imageSamplerDescriptor.buffer.allocationInfo.pMappedData) + imageSamplerDescriptor.offset;
+  uint8_t* imageSamplerDescriptorPtr =
+      reinterpret_cast<uint8_t*>(
+          imageSamplerDescriptor.buffer.allocationInfo.pMappedData) +
+      imageSamplerDescriptor.offset;
 
   for (size_t i = 0; i < textures.size(); i++) {
     const Texture& texture = textures[i];
 
-    vk::DescriptorImageInfo imageSamplerDescriptorImageInfo = vk::DescriptorImageInfo{}
-      .setSampler(sampler)
-      .setImageView(texture.image.view)
-      .setImageLayout(texture.image.layout);
+    vk::DescriptorImageInfo imageSamplerDescriptorImageInfo =
+        vk::DescriptorImageInfo{}
+            .setSampler(sampler)
+            .setImageView(texture.image.view)
+            .setImageLayout(texture.image.layout);
 
-    vk::DescriptorGetInfoEXT imageSamplerDescriptorInfo = vk::DescriptorGetInfoEXT{}
-      .setData(vk::DescriptorDataEXT{}.setPCombinedImageSampler(&imageSamplerDescriptorImageInfo))
-      .setType(imageSamplerDescriptor.type);
+    vk::DescriptorGetInfoEXT imageSamplerDescriptorInfo =
+        vk::DescriptorGetInfoEXT{}
+            .setData(vk::DescriptorDataEXT{}.setPCombinedImageSampler(&imageSamplerDescriptorImageInfo))
+            .setType(imageSamplerDescriptor.type);
 
     d.getDescriptorEXT(
-      imageSamplerDescriptorInfo,
-      descriptorBufferProperties.combinedImageSamplerDescriptorSize,
-      imageSamplerDescriptorPtr,
-      dld
+        imageSamplerDescriptorInfo,
+        descriptorBufferProperties.combinedImageSamplerDescriptorSize,
+        imageSamplerDescriptorPtr, 
+        dld
     );
 
     imageSamplerDescriptorPtr += imageSamplerDescriptor.layoutSize;
+  }
+}
+
+void Engine::loadState(const EngineState& state) {
+  projection = state.projection;
+
+  setLight(state.light);
+
+  objects = state.objects;
+  materials = state.materials;
+
+  for (const std::string& mesh : state.meshes) {
+    loadMesh(mesh);
+  }
+
+  for (const std::string& texture : state.textures) {
+    loadTexture(texture);
   }
 }

@@ -12,23 +12,22 @@
 #include "pipeline.hpp"
 #include "scene.hpp"
 
-class Engine {
- public:
+struct EngineState {
   Projection projection;
-
-  std::vector<Mesh> meshes;
-  std::vector<Texture> textures;
+  Light light;
   std::vector<Object> objects;
   std::vector<Material> materials;
+  std::vector<std::string> meshes;
+  std::vector<std::string> textures;
+};
 
+class Engine {
+ public:
   Pipeline pipeline;
 
   bool isRunning = true;
 
-  void init(const Display& d);
-  void setLight(const Light& light);
-  void loadMesh(const std::string_view path);
-  void loadTexture(const std::string_view path);
+  void init(const Display& d, const EngineState& state);
 
   void drawFrame(float deltaTime);
   void processInput(float deltaTime);
@@ -38,6 +37,12 @@ class Engine {
   Display display;
   Camera camera;
   Light light;
+  Projection projection;
+
+  std::vector<Mesh> meshes;
+  std::vector<Texture> textures;
+  std::vector<Object> objects;
+  std::vector<Material> materials;
 
   vkb::Instance instance;
   vk::detail::DispatchLoaderDynamic dld;
@@ -64,12 +69,12 @@ class Engine {
 
   vk::DescriptorSetLayout imageSamplerLayout;
   vk::DescriptorSetLayout uniformLayout;
-  
+
   Buffer uniformBuffer;
 
   Descriptor uniformDescriptor;
   Descriptor imageSamplerDescriptor;
-  
+
   vk::CommandPool commandPool;
   vk::CommandBuffer commandBuffer;
 
@@ -98,4 +103,9 @@ class Engine {
   void createCommandBuffer();
   void createSampler();
   void createPipeline();
+  void loadState(const EngineState& state);
+
+  void setLight(const Light& light);
+  void loadMesh(const std::string& path);
+  void loadTexture(const std::string& path);
 };

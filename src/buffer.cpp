@@ -122,14 +122,6 @@ void Buffer::destroy(const VmaAllocator& allocator) {
   vmaDestroyBuffer(allocator, buffer, allocation);
 }
 
-Buffer Buffer::createUniformBuffer(const VmaAllocator& allocator,
-                                   const void* data,
-                                   const vk::DeviceSize size) {
-  return Buffer{allocator, data, size,
-                vk::BufferUsageFlagBits::eUniformBuffer |
-                    vk::BufferUsageFlagBits::eShaderDeviceAddress};
-}
-
 vk::DeviceAddress Buffer::getDeviceAddress(const vk::Device& device) const {
   vk::BufferDeviceAddressInfo bufferDeviceAddressInfo =
       vk::BufferDeviceAddressInfo{}.setBuffer(buffer);

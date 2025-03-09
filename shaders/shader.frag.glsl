@@ -16,14 +16,14 @@ layout(set = 1, binding = 0) uniform Projection {
 }
 proj;
 
-layout(set = 3, binding = 0) uniform Light {
+layout(set = 2, binding = 0) uniform Light {
   vec3 pos;
   vec3 color;
   float ambient;
 }
 light;
 
-layout(set = 4, binding = 0) uniform Material {
+layout(set = 3, binding = 0) uniform Material {
   vec3 specular;
   vec3 ambient;
   vec3 diffuse;

@@ -17,16 +17,16 @@ layout(set = 1, binding = 0) uniform Projection {
 }
 proj;
 
-layout(set = 2, binding = 0) uniform Object {
+layout(set = 4, binding = 0) uniform Object {
   mat4 matrix;
   vec3 color;
 }
 object;
 
 void main() {
-  vec3 pos = (proj.view * object.matrix * proj.model * vec4(inPosition, 1.0))
-                 .xyz;
-  vec3 normal = normalize((proj.view * object.rotation * proj.model *
+  vec3 pos =
+      (proj.view * object.matrix * proj.model * vec4(inPosition, 1.0)).xyz;
+  vec3 normal = normalize((proj.view * object.matrix * proj.model *
                            vec4(inNormals, 0.0)))
                     .xyz;
 

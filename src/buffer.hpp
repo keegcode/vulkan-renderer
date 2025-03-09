@@ -31,10 +31,6 @@ class Buffer {
          VmaMemoryUsage memoryUsage,
          VmaAllocationCreateFlags createFlags);
 
-  static Buffer createUniformBuffer(const VmaAllocator& allocator,
-                                    const void* data,
-                                    const vk::DeviceSize size);
-
   static void copyToImage(const VmaAllocator& allocator,
                           const vk::Device& device,
                           const vk::CommandPool& commandPool,

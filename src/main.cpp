@@ -16,7 +16,7 @@ int32_t main() {
   display.init();
 
   Engine engine{};
-  engine.init(display);
+  EngineState state{};
 
   glm::mat4 model{1.0f};
   glm::mat4 view{1.0f};
@@ -29,32 +29,35 @@ int32_t main() {
   perspective[1][1] *= -1;
 
   Projection proj{model, view, perspective};
-  engine.projection = proj;
+  state.projection = proj;
 
-  engine.loadMesh("./assets/cube.obj");
-  engine.loadMesh("./assets/suzanne.obj");
+  state.meshes.push_back("./assets/cube.obj");
+  state.meshes.push_back("./assets/suzanne.obj");
 
-  engine.loadTexture("./textures/default.jpg");
+  state.textures.push_back("./textures/default.jpg");
 
   Material material{};
   material.solid = 1;
-  material.ambient = glm::vec3{1.0, 1.0, 1.0};
-  material.diffuse = glm::vec3{1.0, 1.0, 1.0};
-  material.specular = glm::vec3{1.0, 1.0, 1.0};
+  material.ambient = glm::vec3{0.5};
+  material.diffuse = glm::vec3{0.5};
+  material.specular = glm::vec3{0.5};
   material.shininess = 0.5;
 
-  engine.materials.push_back(material);
+  state.materials.push_back(material);
 
   Object obj1{};
-  obj1.matrix = glm::scale(glm::translate(obj1.matrix, glm::vec3{0.0, 0.0, -10.0}), glm::vec3{2.5f});
-  obj1.textureIdx = 1;
+  obj1.matrix = glm::scale(
+      glm::translate(obj1.matrix, glm::vec3{0.0, 0.0, -10.0}), glm::vec3{2.5f});
+  obj1.textureIdx = 0;
   obj1.meshIdx = 0;
   obj1.materialIdx = 0;
 
-  engine.objects.push_back(obj1);
+  state.objects.push_back(obj1);
 
   Light light{glm::vec3{0.0}, glm::vec3{1.0}, 0.03};
-  engine.setLight(light);
+  state.light = light;
+
+  engine.init(display, state);
 
   float previousTicks = SDL_GetTicks();
   float deltaTime;

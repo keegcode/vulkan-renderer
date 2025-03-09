@@ -33,6 +33,7 @@ struct Light {
 
 struct Texture {
   Image image;
+  Texture(const Image& image);
   void destroy(const VmaAllocator& allocator, const vk::Device& device);
 };
 
