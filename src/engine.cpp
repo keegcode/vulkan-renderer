@@ -231,8 +231,7 @@ void Engine::drawFrame(float deltaTime) {
           .setAddress(scene.materialsDescriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(scene.entitiesDescriptor.address.deviceAddress)
-  };
+          .setAddress(scene.entitiesDescriptor.address.deviceAddress)};
 
   commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, dld);
 
@@ -241,10 +240,10 @@ void Engine::drawFrame(float deltaTime) {
     const Mesh& mesh = scene.meshes[entity.meshIdx];
 
     std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
-    std::vector<vk::DeviceSize> descriptorOffsets{scene.texturesDescriptor.layoutSize * entity.textureIdx, 0, 0,
+    std::vector<vk::DeviceSize> descriptorOffsets{
+        scene.texturesDescriptor.layoutSize * entity.textureIdx, 0, 0,
         scene.materialsDescriptor.layoutSize * entity.materialIdx,
-        scene.entitiesDescriptor.layoutSize * i
-    };
+        scene.entitiesDescriptor.layoutSize * i};
 
     commandBuffer.setDescriptorBufferOffsetsEXT(
         vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 5,
@@ -734,7 +733,8 @@ void Engine::loadScene(const EngineState& state) {
   for (size_t i = 0; i < state.textures.size(); i++) {
     const std::string& path = state.textures[i];
     Texture texture = loadTexture(path);
-    scene.texturesDescriptor.setImage(texture.image, sampler, i, d, dld, descriptorBufferProperties);
+    scene.texturesDescriptor.setImage(texture.image, sampler, i, d, dld,
+                                      descriptorBufferProperties);
     scene.textures.push_back(texture);
   }
 
@@ -751,7 +751,7 @@ void Engine::loadScene(const EngineState& state) {
                vk::BufferUsageFlagBits::eUniformBuffer |
                    vk::BufferUsageFlagBits::eShaderDeviceAddress};
     scene.materialsDescriptor.setUniformBuffer(material.uniform, i, d, dld,
-                                              descriptorBufferProperties);
+                                               descriptorBufferProperties);
     scene.materials.push_back(material);
   }
 

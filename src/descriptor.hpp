@@ -38,12 +38,13 @@ struct Descriptor {
                         const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
                             descriptorBufferProperties);
 
-  void setImage(const Image& src, const vk::Sampler& sampler,
-                        uint32_t offset,
-                        const vk::Device& device,
-                        const vk::detail::DispatchLoaderDynamic& dld,
-                        const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
-                            descriptorBufferProperties);
+  void setImage(const Image& src,
+                const vk::Sampler& sampler,
+                uint32_t offset,
+                const vk::Device& device,
+                const vk::detail::DispatchLoaderDynamic& dld,
+                const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
+                    descriptorBufferProperties);
 
   void destroy(const VmaAllocator& allocator);
 };

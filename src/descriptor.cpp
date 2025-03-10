@@ -60,7 +60,7 @@ Descriptor Descriptor::createTextureDescriptor(
   descriptor.buffer =
       Buffer{allocator, descriptor.layoutSize * static_cast<uint32_t>(count),
              vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                 vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT | 
+                 vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
                  vk::BufferUsageFlagBits::eShaderDeviceAddress,
              VMA_MEMORY_USAGE_AUTO,
              VMA_ALLOCATION_CREATE_MAPPED_BIT |
@@ -100,23 +100,22 @@ void Descriptor::setUniformBuffer(
       uniformDescriptorPtr + (index * layoutSize) + offset, dld);
 }
 
-void Descriptor::setImage(
-    const Image& src,
-    const vk::Sampler& sampler,
-    uint32_t index,
-    const vk::Device& device,
-    const vk::detail::DispatchLoaderDynamic& dld,
-    const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
-        descriptorBufferProperties) {
+void Descriptor::setImage(const Image& src,
+                          const vk::Sampler& sampler,
+                          uint32_t index,
+                          const vk::Device& device,
+                          const vk::detail::DispatchLoaderDynamic& dld,
+                          const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
+                              descriptorBufferProperties) {
   char* textureDescriptorPtr =
       reinterpret_cast<char*>(buffer.allocationInfo.pMappedData);
 
   vk::DescriptorImageInfo textureProjectionDescriptorImageInfo =
       vk::DescriptorImageInfo{}
-        .setSampler(sampler)
-        .setImageView(src.view)
-        .setImageLayout(src.layout);
-        
+          .setSampler(sampler)
+          .setImageView(src.view)
+          .setImageLayout(src.layout);
+
   vk::DescriptorGetInfoEXT textureDescriptorInfo =
       vk::DescriptorGetInfoEXT{}
           .setData(vk::DescriptorDataEXT{}.setPCombinedImageSampler(

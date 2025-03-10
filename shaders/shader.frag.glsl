@@ -44,7 +44,9 @@ void main() {
 
   float specular = pow(max(dot(view, reflection), 0.0), 32) * 0.5;
 
-  outColor = vec4(((material.solid == 1 ? inColor : texture(tex0, inTexCoord).xyz) *
-                      light.color * (diffuse + light.ambient + specular)) * material.brightness,
-                  1.0);
+  outColor =
+      vec4(((material.solid == 1 ? inColor : texture(tex0, inTexCoord).xyz) *
+            light.color * (diffuse + light.ambient + specular)) *
+               material.brightness,
+           1.0);
 }
