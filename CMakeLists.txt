@@ -24,8 +24,6 @@ add_executable(${PROJECT_NAME}
   src/main.cpp 
   src/engine.cpp 
   src/engine.hpp 
-  src/mesh.cpp
-  src/mesh.hpp
   src/image.cpp
   src/image.hpp
   src/buffer.cpp

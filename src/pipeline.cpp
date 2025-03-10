@@ -1,6 +1,5 @@
 #include "pipeline.hpp"
-#include <vulkan/vulkan_enums.hpp>
-#include "mesh.hpp"
+#include "scene.hpp"
 
 Pipeline::Pipeline() {};
 

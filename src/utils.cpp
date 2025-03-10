@@ -15,8 +15,7 @@ vkb::Swapchain utils::createSwapchain(vkb::Device device,
           .set_old_swapchain(*old)
           .set_desired_extent(extent.width, extent.height)
           .set_required_min_image_count(minImageCount)
-          .set_desired_present_mode(
-              VkPresentModeKHR::VK_PRESENT_MODE_MAILBOX_KHR);
+          .set_desired_present_mode(VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR);
 
   if (old) {
     builder.set_old_swapchain(*old);
@@ -93,7 +92,7 @@ void utils::endSingleSubmitCommand(const vk::Device& device,
 }
 
 vk::DeviceSize utils::getAlignedSize(const vk::DeviceSize size,
-                                     const uint32_t alignment) {
+                                     const vk::DeviceSize alignment) {
   return (size + alignment - 1) & ~(alignment - 1);
 }
 

@@ -28,7 +28,7 @@ int32_t main() {
 
   perspective[1][1] *= -1;
 
-  Projection proj{model, view, perspective};
+  ProjectionProperties proj{model, view, perspective};
   state.projection = proj;
 
   state.meshes.push_back("./assets/cube.obj");
@@ -36,26 +36,50 @@ int32_t main() {
 
   state.textures.push_back("./textures/default.jpg");
 
-  Material material{};
-  material.solid = 1;
+  MaterialProperties lightMaterial{};
+  lightMaterial.solid = 1;
+  lightMaterial.ambient = glm::vec3{1.0};
+  lightMaterial.diffuse = glm::vec3{1.0};
+  lightMaterial.specular = glm::vec3{1.0};
+  lightMaterial.brightness = 100.0;
+
+  MaterialProperties material{};
+  material.solid = 0;
   material.ambient = glm::vec3{0.5};
   material.diffuse = glm::vec3{0.5};
   material.specular = glm::vec3{0.5};
-  material.shininess = 0.5;
+  material.brightness = 1.0;
 
+  state.materials.push_back(lightMaterial);
   state.materials.push_back(material);
 
-  Object obj1{};
-  obj1.matrix = glm::scale(
-      glm::translate(obj1.matrix, glm::vec3{0.0, 0.0, -10.0}), glm::vec3{2.5f});
-  obj1.textureIdx = 0;
-  obj1.meshIdx = 0;
-  obj1.materialIdx = 0;
+  Entity entity1{};
+  entity1.properties.scale = glm::scale(glm::mat4{1.0f}, glm::vec3{2.5f});
+  entity1.properties.translation =
+      glm::translate(glm::mat4{1.0f}, glm::vec3{0.0, 0.0, -10.0});
+  entity1.properties.color = glm::vec3{0.5};
+  entity1.textureIdx = 0;
+  entity1.meshIdx = 1;
+  entity1.materialIdx = 1;
 
-  state.objects.push_back(obj1);
+  LightProperties light;
+  light.color = glm::vec3{1.0};
+  light.pos = glm::vec3{0.0};
+  light.ambient = 0.03;
 
-  Light light{glm::vec3{0.0}, glm::vec3{1.0}, 0.03};
   state.light = light;
+
+  Entity lightEntity{};
+  lightEntity.properties.scale = glm::scale(glm::mat4{1.0f}, glm::vec3{0.5f});
+  lightEntity.properties.translation =
+      glm::translate(glm::mat4{1.0f}, light.pos);
+  lightEntity.properties.color = glm::vec3{1.0};
+  lightEntity.textureIdx = 0;
+  lightEntity.meshIdx = 0;
+  lightEntity.materialIdx = 0;
+
+  state.entities.push_back(entity1);
+  state.entities.push_back(lightEntity);
 
   engine.init(display, state);
 

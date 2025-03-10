@@ -27,8 +27,8 @@ layout(set = 3, binding = 0) uniform Material {
   vec3 specular;
   vec3 ambient;
   vec3 diffuse;
-  float shininess;
-  bool solid;
+  float brightness;
+  uint solid;
 }
 material;
 
@@ -44,7 +44,7 @@ void main() {
 
   float specular = pow(max(dot(view, reflection), 0.0), 32) * 0.5;
 
-  outColor = vec4((material.solid ? inColor : texture(tex0, inTexCoord).xyz) *
-                      light.color * (diffuse + light.ambient + specular),
+  outColor = vec4(((material.solid == 1 ? inColor : texture(tex0, inTexCoord).xyz) *
+                      light.color * (diffuse + light.ambient + specular)) * material.brightness,
                   1.0);
 }

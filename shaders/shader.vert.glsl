@@ -17,21 +17,24 @@ layout(set = 1, binding = 0) uniform Projection {
 }
 proj;
 
-layout(set = 4, binding = 0) uniform Object {
-  mat4 matrix;
+layout(set = 4, binding = 0) uniform Entity {
+  mat4 translation;
+  mat4 rotation;
+  mat4 scale;
   vec3 color;
 }
-object;
+entity;
 
 void main() {
-  vec3 pos =
-      (proj.view * object.matrix * proj.model * vec4(inPosition, 1.0)).xyz;
-  vec3 normal = normalize((proj.view * object.matrix * proj.model *
-                           vec4(inNormals, 0.0)))
+  vec3 pos = (proj.view * entity.translation * entity.rotation * entity.scale *
+              proj.model * vec4(inPosition, 1.0))
+                 .xyz;
+  vec3 normal = normalize((proj.view * entity.rotation * entity.scale *
+                           proj.model * vec4(inNormals, 0.0)))
                     .xyz;
 
   outTexCoord = inTexCoord;
-  outColor = object.color;
+  outColor = entity.color;
   outNormals = normal;
   outFragPos = pos;
 

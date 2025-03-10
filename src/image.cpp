@@ -60,11 +60,10 @@ Image::Image(const VmaAllocator& allocator,
              const vk::Queue& transferQueue,
              const std::string_view path,
              vk::ImageLayout l) {
-  int32_t height, width;
+  int height, width;
 
   uint8_t* data =
-      stbi_load(path.data(), reinterpret_cast<int*>(&width),
-                reinterpret_cast<int*>(&height), nullptr, STBI_rgb_alpha);
+      stbi_load(path.data(), &width, &height, nullptr, STBI_rgb_alpha);
 
   extent = vk::Extent3D{}.setWidth(width).setHeight(height).setDepth(1);
 

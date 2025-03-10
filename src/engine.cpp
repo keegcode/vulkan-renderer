@@ -3,7 +3,6 @@
 #include "VkBootstrap.h"
 #include "buffer.hpp"
 #include "image.hpp"
-#include "pipeline.hpp"
 #include "scene.hpp"
 #include "utils.hpp"
 
@@ -11,7 +10,6 @@
 #include <cstdint>
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_transform.hpp>
-#include <string_view>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -30,9 +28,7 @@ void Engine::init(const Display& d, const EngineState& state) {
   createCommandBuffer();
   createSampler();
   createDescriptorSetLayouts();
-  loadState(state);
-  createUniformBuffer();
-  createDescriptors();
+  loadScene(state);
   createDepthImage();
   createViewportAndScissors();
   createPipeline();
@@ -204,103 +200,55 @@ void Engine::drawFrame(float deltaTime) {
 
   commandBuffer.beginRendering(renderingInfo);
 
+  commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                             pipeline.graphicsPipeline);
+
   commandBuffer.setViewport(0, 1, &viewport);
   commandBuffer.setScissor(0, 1, &scissors);
 
-  std::array<vk::DeviceSize, 1> offsets = {0};
+  std::vector<vk::DeviceSize> offsets = {0};
 
-  for (size_t i = 0; i < objects.size(); i++) {
-    const Object& object = objects[i];
-    const Mesh& mesh = meshes[object.meshIdx];
-    const Material& material = materials[object.materialIdx];
+  scene.projection.properties.view = glm::lookAt(
+      scene.camera.pos, scene.camera.pos + scene.camera.front, scene.camera.up);
 
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                               pipeline.graphicsPipeline);
+  vmaCopyMemoryToAllocation(allocator, &scene.projection.properties,
+                            scene.projection.uniform.allocation, 0,
+                            sizeof(ProjectionProperties));
 
-    projection.view =
-        glm::lookAt(camera.pos, camera.pos + camera.front, camera.up);
+  std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
+                    vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
+          .setAddress(scene.texturesDescriptor.address.deviceAddress),
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(scene.projection.descriptor.address.deviceAddress),
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(scene.light.descriptor.address.deviceAddress),
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(scene.materialsDescriptor.address.deviceAddress),
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(scene.entitiesDescriptor.address.deviceAddress)
+  };
 
-    vmaCopyMemoryToAllocation(allocator, &projection, uniformBuffer.allocation,
-                              0, sizeof(Projection));
+  commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, dld);
 
-    vmaCopyMemoryToAllocation(allocator, &light, uniformBuffer.allocation,
-                              sizeof(Projection), sizeof(Light));
+  for (size_t i = 0; i < scene.entities.size(); i++) {
+    const Entity& entity = scene.entities[i];
+    const Mesh& mesh = scene.meshes[entity.meshIdx];
 
-    vmaCopyMemoryToAllocation(allocator, &material, uniformBuffer.allocation,
-                              sizeof(Projection) + sizeof(Light) +
-                                  sizeof(Material) * object.materialIdx,
-                              sizeof(Material));
-
-    vmaCopyMemoryToAllocation(allocator, &object, uniformBuffer.allocation,
-                              sizeof(Projection) + sizeof(Light) +
-                                  sizeof(Material) * materials.size() +
-                                  offsetof(Object, textureIdx) * i,
-                              offsetof(Object, textureIdx));
-
-    Projection p;
-    Light l;
-    Material m;
-    Object o;
-
-    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, 0, &p, sizeof(Projection));
-    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, sizeof(Projection), &l, sizeof(Light));
-    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx, &m, sizeof(Material));
-    vmaCopyAllocationToMemory(allocator, uniformBuffer.allocation, sizeof(Projection) + sizeof(Light) + sizeof(Material) * object.materialIdx + offsetof(Object, textureIdx) * i, &o, offsetof(Object, textureIdx));
-
-    std::array<vk::DescriptorBufferBindingInfoEXT, 5> bindingInfo{
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                      vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
-            .setAddress(imageSamplerDescriptor.address.deviceAddress),
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(uniformDescriptor.address.deviceAddress),
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(uniformDescriptor.address.deviceAddress),
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(uniformDescriptor.address.deviceAddress),
-        vk::DescriptorBufferBindingInfoEXT{}
-            .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-            .setAddress(uniformDescriptor.address.deviceAddress)};
-
-    commandBuffer.bindDescriptorBuffersEXT(bindingInfo, dld);
-
-    vk::DeviceSize imageSamplerOffset = imageSamplerDescriptor.layoutSize * object.textureIdx;
-    uint32_t imageSamplerIndex = 0;
-
-    vk::DeviceSize projectionOffset = 0;
-    uint32_t projectionIndex = 1;
-
-    vk::DeviceSize lightOffset = uniformDescriptor.layoutSize;
-    uint32_t lightIndex = 2;
-
-    vk::DeviceSize materialOffset = lightOffset + uniformDescriptor.layoutSize * object.materialIdx;
-    uint32_t materialIndex = 3;
-
-    vk::DeviceSize objectOffset = materialOffset + uniformDescriptor.layoutSize * i; 
-    uint32_t objectIndex = 4;
+    std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
+    std::vector<vk::DeviceSize> descriptorOffsets{scene.texturesDescriptor.layoutSize * entity.textureIdx, 0, 0,
+        scene.materialsDescriptor.layoutSize * entity.materialIdx,
+        scene.entitiesDescriptor.layoutSize * i
+    };
 
     commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 1,
-        &imageSamplerIndex, &imageSamplerOffset, dld);
-
-    commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 1, 1,
-        &projectionIndex, &projectionOffset, dld);
-
-    commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 1, 1,
-        &lightIndex, &lightOffset, dld);
-
-    commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 3, 1,
-        &materialIndex, &materialOffset, dld);
-
-    commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 4, 1,
-        &objectIndex, &objectOffset, dld);
+        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 5,
+        descriptorIndices.data(), descriptorOffsets.data(), dld);
 
     commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
                                     offsets.data());
@@ -383,48 +331,54 @@ void Engine::processInput(float deltaTime) {
         event.button.button == SDL_BUTTON_RIGHT) {
       SDL_SetRelativeMouseMode(SDL_TRUE);
       SDL_SetWindowGrab(display.window, SDL_TRUE);
-      camera.mode = CameraMode::Move;
+      scene.camera.mode = CameraMode::Move;
     }
     if (event.type == SDL_MOUSEBUTTONUP &&
         event.button.button == SDL_BUTTON_RIGHT) {
       SDL_SetRelativeMouseMode(SDL_FALSE);
       SDL_SetWindowGrab(display.window, SDL_FALSE);
-      camera.mode = CameraMode::Fixed;
+      scene.camera.mode = CameraMode::Fixed;
     }
-    if (event.type == SDL_KEYDOWN && camera.mode == CameraMode::Move) {
+    if (event.type == SDL_KEYDOWN && scene.camera.mode == CameraMode::Move) {
       switch (event.key.keysym.sym) {
         case SDLK_w:
-          camera.pos += camera.front * camera.velocity * deltaTime;
+          scene.camera.pos +=
+              scene.camera.front * scene.camera.velocity * deltaTime;
           break;
         case SDLK_s:
-          camera.pos -= camera.front * camera.velocity * deltaTime;
+          scene.camera.pos -=
+              scene.camera.front * scene.camera.velocity * deltaTime;
           break;
         case SDLK_a:
-          camera.pos -= camera.right * camera.velocity * deltaTime;
+          scene.camera.pos -=
+              scene.camera.right * scene.camera.velocity * deltaTime;
           break;
         case SDLK_d:
-          camera.pos += camera.right * camera.velocity * deltaTime;
+          scene.camera.pos +=
+              scene.camera.right * scene.camera.velocity * deltaTime;
           break;
         default:
           break;
       }
     }
-    if (event.type == SDL_MOUSEMOTION && camera.mode == CameraMode::Move) {
-      camera.yaw += event.motion.xrel * camera.sensitivity;
-      camera.pitch += -event.motion.yrel * camera.sensitivity;
+    if (event.type == SDL_MOUSEMOTION &&
+        scene.camera.mode == CameraMode::Move) {
+      scene.camera.yaw += event.motion.xrel * scene.camera.sensitivity;
+      scene.camera.pitch += -event.motion.yrel * scene.camera.sensitivity;
 
-      camera.pitch = std::clamp(camera.pitch, -90.0f, 90.0f);
+      scene.camera.pitch = std::clamp(scene.camera.pitch, -90.0f, 90.0f);
 
       glm::vec3 front{0.0f};
 
-      front.x = glm::cos(glm::radians(camera.yaw)) *
-                glm::cos(glm::radians(camera.pitch));
-      front.y = glm::sin(glm::radians(camera.pitch));
-      front.z = glm::sin(glm::radians(camera.yaw)) *
-                glm::cos(glm::radians(camera.pitch));
+      front.x = glm::cos(glm::radians(scene.camera.yaw)) *
+                glm::cos(glm::radians(scene.camera.pitch));
+      front.y = glm::sin(glm::radians(scene.camera.pitch));
+      front.z = glm::sin(glm::radians(scene.camera.yaw)) *
+                glm::cos(glm::radians(scene.camera.pitch));
 
-      camera.front = glm::normalize(front);
-      camera.right = glm::normalize(glm::cross(camera.front, camera.up));
+      scene.camera.front = glm::normalize(front);
+      scene.camera.right =
+          glm::normalize(glm::cross(scene.camera.front, scene.camera.up));
     }
   }
 };
@@ -438,11 +392,11 @@ void Engine::destroy() {
   d.destroySemaphore(renderCompleteSemaphore);
   d.destroySemaphore(presentCompleteSemaphore);
 
-  for (Texture& texture : textures) {
+  for (Texture& texture : scene.textures) {
     texture.destroy(allocator, d);
   }
 
-  for (Mesh& mesh : meshes) {
+  for (Mesh& mesh : scene.meshes) {
     mesh.destroy(allocator);
   }
 
@@ -456,10 +410,7 @@ void Engine::destroy() {
   d.destroyDescriptorSetLayout(uniformLayout);
   d.destroyDescriptorSetLayout(imageSamplerLayout);
 
-  uniformBuffer.destroy(allocator);
-
-  uniformDescriptor.destroy(allocator);
-  imageSamplerDescriptor.destroy(allocator);
+  scene.destroy(allocator);
 
   vkb::destroy_swapchain(swapchain);
   vkb::destroy_surface(instance, surface);
@@ -525,8 +476,11 @@ void Engine::pickPhysicalDevice() {
   physicalDevice = physicalDeviceResult.value();
   physicalDeviceProperties.pNext = &descriptorBufferProperties;
 
-  vk::PhysicalDevice{physicalDevice.physical_device}.getProperties2(
-      &physicalDeviceProperties);
+  vk::PhysicalDevice pd = vk::PhysicalDevice{physicalDevice};
+
+  pd.getProperties2(&physicalDeviceProperties);
+
+  capabilities = pd.getSurfaceCapabilitiesKHR(physicalDevice.surface);
 };
 
 void Engine::pickDevice() {
@@ -564,7 +518,8 @@ void Engine::createSwapchain() {
 
   vk::Extent2D extent = vk::Extent2D{}.setWidth(w).setHeight(h);
 
-  swapchain = utils::createSwapchain(device, extent, 4, &swapchain);
+  swapchain = utils::createSwapchain(device, extent, capabilities.minImageCount,
+                                     &swapchain);
 
   vkb::Result<std::vector<VkImageView>> imageViewsResult =
       swapchain.get_image_views();
@@ -728,211 +683,90 @@ void Engine::createDescriptorSetLayouts() {
       d.createDescriptorSetLayout(uniformSetLayoutCreateInfo, nullptr);
 }
 
-void Engine::createUniformBuffer() {
-  uniformBuffer = Buffer{allocator,
-                         sizeof(Projection) + sizeof(Light) +
-                             sizeof(Material) * materials.size() +
-                             offsetof(Object, textureIdx) * objects.size(),
-                         vk::BufferUsageFlagBits::eUniformBuffer |
-                             vk::BufferUsageFlagBits::eShaderDeviceAddress
-  };
-}
-
-void Engine::setLight(const Light& l) {
-  Object object{};
-  object.matrix =
-      glm::scale(glm::translate(object.matrix, light.pos), glm::vec3{0.5f});
-  object.color = glm::vec3{1.0};
-
-  objects.push_back(object);
-
-  light = l;
-}
-
 void Engine::loadMesh(const std::string& path) {
-  meshes.push_back(Mesh{allocator, path});
+  scene.meshes.push_back(Mesh{allocator, path});
 }
 
-void Engine::loadTexture(const std::string& path) {
+Texture Engine::loadTexture(const std::string& path) {
+  vk::Device d{device};
+  Texture texture{};
+
   Image image{allocator,   vk::Device{device},
               commandPool, queue,
               path,        vk::ImageLayout::eShaderReadOnlyOptimal};
 
-  Texture texture{image};
+  texture.image = image;
 
-  textures.push_back(texture);
+  return texture;
 }
 
-void Engine::createDescriptors() {
-  vk::Device d{device};
+void Engine::loadScene(const EngineState& state) {
+  vk::Device d = vk::Device{device};
 
-  uniformDescriptor.type = vk::DescriptorType::eUniformBuffer;
-  imageSamplerDescriptor.type = vk::DescriptorType::eCombinedImageSampler;
+  scene.projection.properties = state.projection;
+  scene.projection.uniform = Buffer{
+      allocator, &scene.projection.properties, sizeof(ProjectionProperties),
+      vk::BufferUsageFlagBits::eUniformBuffer |
+          vk::BufferUsageFlagBits::eShaderDeviceAddress};
+  scene.projection.descriptor = Descriptor::createUniformDescriptor(
+      1, uniformLayout, d, allocator, dld, descriptorBufferProperties);
+  scene.projection.descriptor.setUniformBuffer(scene.projection.uniform, 0, d,
+                                               dld, descriptorBufferProperties);
 
-  uniformDescriptor.layoutSize = utils::getAlignedSize(
-      d.getDescriptorSetLayoutSizeEXT(uniformLayout, dld),
-      descriptorBufferProperties.descriptorBufferOffsetAlignment);
-
-  imageSamplerDescriptor.layoutSize = utils::getAlignedSize(
-      d.getDescriptorSetLayoutSizeEXT(imageSamplerLayout, dld),
-      descriptorBufferProperties.descriptorBufferOffsetAlignment);
-
-  uniformDescriptor.offset =
-      d.getDescriptorSetLayoutBindingOffsetEXT(uniformLayout, 0, dld);
-  imageSamplerDescriptor.offset =
-      d.getDescriptorSetLayoutBindingOffsetEXT(imageSamplerLayout, 0, dld);
-
-  uniformDescriptor.buffer = Buffer{
-      allocator,
-      uniformDescriptor.layoutSize * (2 + objects.size() + materials.size()),
-      vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-          vk::BufferUsageFlagBits::eShaderDeviceAddress,
-      VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-
-  imageSamplerDescriptor.buffer =
-      Buffer{allocator, imageSamplerDescriptor.layoutSize * textures.size(),
-             vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                 vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
-                 vk::BufferUsageFlagBits::eShaderDeviceAddress,
-             VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-
-  uniformDescriptor.address.setDeviceAddress(
-      uniformDescriptor.buffer.getDeviceAddress(d));
-
-  imageSamplerDescriptor.address.setDeviceAddress(
-      imageSamplerDescriptor.buffer.getDeviceAddress(d));
-
-  uint8_t* uniformDescriptorPtr =
-      reinterpret_cast<uint8_t*>(
-          uniformDescriptor.buffer.allocationInfo.pMappedData) +
-      uniformDescriptor.offset;
-
-  vk::DeviceAddress uniformBufferAddress = uniformBuffer.getDeviceAddress(d);
-  uint32_t uniformAddressOffset = 0;
-
-  vk::DescriptorAddressInfoEXT uniformProjectionDescriptorAddressInfo =
-      vk::DescriptorAddressInfoEXT{}
-          .setRange(sizeof(Projection))
-          .setFormat(vk::Format::eUndefined)
-          .setAddress(uniformBufferAddress + uniformAddressOffset);
-
-  vk::DescriptorGetInfoEXT uniformProjectionDescriptorInfo =
-      vk::DescriptorGetInfoEXT{}
-          .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
-              &uniformProjectionDescriptorAddressInfo))
-          .setType(uniformDescriptor.type);
-
-  d.getDescriptorEXT(uniformProjectionDescriptorInfo,
-                     descriptorBufferProperties.uniformBufferDescriptorSize,
-                     uniformDescriptorPtr, dld);
-
-  uniformDescriptorPtr += uniformDescriptor.layoutSize;
-  uniformAddressOffset += sizeof(Projection);
-
-  vk::DescriptorAddressInfoEXT uniformLightDescriptorAddressInfo =
-      vk::DescriptorAddressInfoEXT{}
-          .setRange(sizeof(Light))
-          .setFormat(vk::Format::eUndefined)
-          .setAddress(uniformBufferAddress + uniformAddressOffset);
-
-  vk::DescriptorGetInfoEXT uniformLightDescriptorInfo =
-      vk::DescriptorGetInfoEXT{}
-          .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
-              &uniformLightDescriptorAddressInfo))
-          .setType(uniformDescriptor.type);
-
-  d.getDescriptorEXT(uniformLightDescriptorInfo,
-                     descriptorBufferProperties.uniformBufferDescriptorSize,
-                     uniformDescriptorPtr, dld);
-
-  uniformDescriptorPtr += uniformDescriptor.layoutSize;
-  uniformAddressOffset += sizeof(Light);
-
-  for (size_t i = 0; i < materials.size(); i++) {
-    vk::DescriptorAddressInfoEXT uniformMaterialDescriptorAddressInfo =
-        vk::DescriptorAddressInfoEXT{}
-            .setRange(sizeof(Material))
-            .setFormat(vk::Format::eUndefined)
-            .setAddress(uniformBufferAddress + uniformAddressOffset);
-
-    vk::DescriptorGetInfoEXT uniformMaterialDescriptorInfo =
-        vk::DescriptorGetInfoEXT{}
-            .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
-                &uniformMaterialDescriptorAddressInfo))
-            .setType(uniformDescriptor.type);
-
-    d.getDescriptorEXT(uniformMaterialDescriptorInfo,
-                       descriptorBufferProperties.uniformBufferDescriptorSize,
-                       uniformDescriptorPtr, dld);
-
-    uniformDescriptorPtr += uniformDescriptor.layoutSize;
-    uniformAddressOffset += sizeof(Material);
-  }
-
-  for (size_t i = 0; i < objects.size(); i++) {
-    vk::DescriptorAddressInfoEXT uniformObjectDescriptorAddressInfo =
-        vk::DescriptorAddressInfoEXT{}
-            .setRange(offsetof(Object, textureIdx))
-            .setFormat(vk::Format::eUndefined)
-            .setAddress(uniformBufferAddress + uniformAddressOffset);
-
-    vk::DescriptorGetInfoEXT uniformObjectDescriptorInfo =
-        vk::DescriptorGetInfoEXT{}
-            .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
-                &uniformObjectDescriptorAddressInfo))
-            .setType(uniformDescriptor.type);
-
-    d.getDescriptorEXT(uniformObjectDescriptorInfo,
-                       descriptorBufferProperties.uniformBufferDescriptorSize,
-                       uniformDescriptorPtr, dld);
-
-    uniformAddressOffset += offsetof(Object, textureIdx);
-    uniformDescriptorPtr += uniformDescriptor.layoutSize;
-  }
-
-  uint8_t* imageSamplerDescriptorPtr =
-      reinterpret_cast<uint8_t*>(
-          imageSamplerDescriptor.buffer.allocationInfo.pMappedData) +
-      imageSamplerDescriptor.offset;
-
-  for (size_t i = 0; i < textures.size(); i++) {
-    const Texture& texture = textures[i];
-
-    vk::DescriptorImageInfo imageSamplerDescriptorImageInfo =
-        vk::DescriptorImageInfo{}
-            .setSampler(sampler)
-            .setImageView(texture.image.view)
-            .setImageLayout(texture.image.layout);
-
-    vk::DescriptorGetInfoEXT imageSamplerDescriptorInfo =
-        vk::DescriptorGetInfoEXT{}
-            .setData(vk::DescriptorDataEXT{}.setPCombinedImageSampler(&imageSamplerDescriptorImageInfo))
-            .setType(imageSamplerDescriptor.type);
-
-    d.getDescriptorEXT(
-        imageSamplerDescriptorInfo,
-        descriptorBufferProperties.combinedImageSamplerDescriptorSize,
-        imageSamplerDescriptorPtr, 
-        dld
-    );
-
-    imageSamplerDescriptorPtr += imageSamplerDescriptor.layoutSize;
-  }
-}
-
-void Engine::loadState(const EngineState& state) {
-  projection = state.projection;
-
-  setLight(state.light);
-
-  objects = state.objects;
-  materials = state.materials;
+  scene.light.properties = state.light;
+  scene.light.uniform =
+      Buffer{allocator, &scene.light.properties, sizeof(LightProperties),
+             vk::BufferUsageFlagBits::eUniformBuffer |
+                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
+  scene.light.descriptor = Descriptor::createUniformDescriptor(
+      1, uniformLayout, d, allocator, dld, descriptorBufferProperties);
+  scene.light.descriptor.setUniformBuffer(scene.light.uniform, 0, d, dld,
+                                          descriptorBufferProperties);
 
   for (const std::string& mesh : state.meshes) {
     loadMesh(mesh);
   }
 
-  for (const std::string& texture : state.textures) {
-    loadTexture(texture);
+  scene.texturesDescriptor = Descriptor::createTextureDescriptor(
+      state.textures.size(), uniformLayout, d, allocator, dld,
+      descriptorBufferProperties);
+
+  for (size_t i = 0; i < state.textures.size(); i++) {
+    const std::string& path = state.textures[i];
+    Texture texture = loadTexture(path);
+    scene.texturesDescriptor.setImage(texture.image, sampler, i, d, dld, descriptorBufferProperties);
+    scene.textures.push_back(texture);
+  }
+
+  scene.materialsDescriptor = Descriptor::createUniformDescriptor(
+      state.materials.size(), uniformLayout, d, allocator, dld,
+      descriptorBufferProperties);
+
+  for (size_t i = 0; i < state.materials.size(); i++) {
+    const MaterialProperties& properties = state.materials[i];
+    Material material{};
+    material.properties = properties;
+    material.uniform =
+        Buffer{allocator, &material.properties, sizeof(MaterialProperties),
+               vk::BufferUsageFlagBits::eUniformBuffer |
+                   vk::BufferUsageFlagBits::eShaderDeviceAddress};
+    scene.materialsDescriptor.setUniformBuffer(material.uniform, i, d, dld,
+                                              descriptorBufferProperties);
+    scene.materials.push_back(material);
+  }
+
+  scene.entitiesDescriptor = Descriptor::createUniformDescriptor(
+      state.entities.size(), uniformLayout, d, allocator, dld,
+      descriptorBufferProperties);
+
+  for (size_t i = 0; i < state.entities.size(); i++) {
+    Entity entity = state.entities[i];
+    entity.uniform =
+        Buffer{allocator, &entity.properties, sizeof(EntityProperties),
+               vk::BufferUsageFlagBits::eUniformBuffer |
+                   vk::BufferUsageFlagBits::eShaderDeviceAddress};
+    scene.entitiesDescriptor.setUniformBuffer(entity.uniform, i, d, dld,
+                                              descriptorBufferProperties);
+    scene.entities.push_back(entity);
   }
 }

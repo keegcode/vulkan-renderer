@@ -17,6 +17,6 @@ void endSingleSubmitCommand(const vk::Device& device,
                             const vk::CommandBuffer& commandBuffer,
                             const vk::Queue& queue);
 vk::DeviceSize getAlignedSize(const vk::DeviceSize size,
-                              const uint32_t alignment);
+                              const vk::DeviceSize alignment);
 std::vector<char> readFile(const std::string_view path);
 }  // namespace utils

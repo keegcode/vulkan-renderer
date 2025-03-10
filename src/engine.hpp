@@ -6,17 +6,15 @@
 
 #include "VkBootstrap.h"
 
-#include "descriptor.hpp"
 #include "display.hpp"
-#include "mesh.hpp"
 #include "pipeline.hpp"
 #include "scene.hpp"
 
 struct EngineState {
-  Projection projection;
-  Light light;
-  std::vector<Object> objects;
-  std::vector<Material> materials;
+  ProjectionProperties projection;
+  LightProperties light;
+  std::vector<Entity> entities;
+  std::vector<MaterialProperties> materials;
   std::vector<std::string> meshes;
   std::vector<std::string> textures;
 };
@@ -35,14 +33,7 @@ class Engine {
 
  private:
   Display display;
-  Camera camera;
-  Light light;
-  Projection projection;
-
-  std::vector<Mesh> meshes;
-  std::vector<Texture> textures;
-  std::vector<Object> objects;
-  std::vector<Material> materials;
+  Scene scene;
 
   vkb::Instance instance;
   vk::detail::DispatchLoaderDynamic dld;
@@ -50,6 +41,7 @@ class Engine {
   vkb::PhysicalDevice physicalDevice;
   vk::PhysicalDeviceProperties2 physicalDeviceProperties;
   vk::PhysicalDeviceDescriptorBufferPropertiesEXT descriptorBufferProperties;
+  vk::SurfaceCapabilitiesKHR capabilities;
   vkb::Device device;
 
   vk::Queue queue;
@@ -69,11 +61,6 @@ class Engine {
 
   vk::DescriptorSetLayout imageSamplerLayout;
   vk::DescriptorSetLayout uniformLayout;
-
-  Buffer uniformBuffer;
-
-  Descriptor uniformDescriptor;
-  Descriptor imageSamplerDescriptor;
 
   vk::CommandPool commandPool;
   vk::CommandBuffer commandBuffer;
@@ -97,15 +84,12 @@ class Engine {
   void createQueue();
   void createSyncPrimitives();
   void createDescriptorSetLayouts();
-  void createUniformBuffer();
-  void createDescriptors();
   void createCommandPool();
   void createCommandBuffer();
   void createSampler();
   void createPipeline();
-  void loadState(const EngineState& state);
+  void loadScene(const EngineState& state);
 
-  void setLight(const Light& light);
   void loadMesh(const std::string& path);
-  void loadTexture(const std::string& path);
+  Texture loadTexture(const std::string& path);
 };
