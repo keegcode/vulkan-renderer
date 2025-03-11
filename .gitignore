@@ -12,6 +12,4 @@ _deps
 CMakeUserPresets.json
 build
 .cache
-assets
-textures
 shaders/*.spv

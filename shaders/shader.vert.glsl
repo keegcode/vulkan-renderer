@@ -22,14 +22,15 @@ layout(set = 4, binding = 0) uniform Entity {
   mat4 rotation;
   mat4 scale;
   vec3 color;
+  vec3 pos;
 }
 entity;
 
 void main() {
-  vec3 pos = (proj.view * entity.translation * entity.rotation * entity.scale *
+  vec3 pos = (proj.view * entity.scale * entity.rotation * entity.translation *
               proj.model * vec4(inPosition, 1.0))
                  .xyz;
-  vec3 normal = normalize((proj.view * entity.rotation * entity.scale *
+  vec3 normal = normalize((proj.view * entity.scale * entity.rotation *
                            proj.model * vec4(inNormals, 0.0)))
                     .xyz;
 
