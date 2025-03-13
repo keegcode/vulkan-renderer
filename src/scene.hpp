@@ -25,35 +25,35 @@ class Mesh {
 };
 
 struct ProjectionProperties {
-  alignas(16) glm::mat4 model;
-  alignas(16) glm::mat4 view;
-  alignas(16) glm::mat4 perspective;
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 perspective;
 };
 
 struct EntityProperties {
-  alignas(16) glm::mat4 translation = glm::mat4{1.0f};
-  alignas(16) glm::mat4 rotation = glm::mat4{1.0f};
-  alignas(16) glm::mat4 scale = glm::mat4{1.0f};
+  glm::mat4 matrix = glm::mat4{1.0f};
   alignas(16) glm::vec3 color = glm::vec3{0.5};
-};
-
-struct MaterialProperties {
-  alignas(16) glm::vec3 ambient;
-  alignas(16) glm::vec3 diffuse;
-  alignas(16) glm::vec3 specular;
-  float brightness;
-  uint32_t solid;
-};
-
-struct LightProperties {
-  alignas(16) glm::vec3 pos;
-  alignas(16) glm::vec3 color;
-  float ambient;
 };
 
 struct Texture {
   Image image;
+  Image diffuseMap;
+  Image specularMap;
   void destroy(const VmaAllocator& allocator, const vk::Device& device);
+};
+
+struct MaterialProperties {
+  glm::vec3 specular;
+  float shininess;
+  alignas(4) bool solid;
+  alignas(4) bool light;
+};
+
+struct LightProperties {
+  alignas(16) glm::vec3 pos;
+  alignas(16) glm::vec3 ambient;
+  alignas(16) glm::vec3 diffuse;
+  alignas(16) glm::vec3 specular;
 };
 
 enum class CameraMode { Fixed, Move };

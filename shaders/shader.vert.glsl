@@ -18,21 +18,17 @@ layout(set = 1, binding = 0) uniform Projection {
 proj;
 
 layout(set = 4, binding = 0) uniform Entity {
-  mat4 translation;
-  mat4 rotation;
-  mat4 scale;
+  mat4 matrix;
   vec3 color;
-  vec3 pos;
 }
 entity;
 
 void main() {
-  vec3 pos = (proj.view * entity.scale * entity.rotation * entity.translation *
-              proj.model * vec4(inPosition, 1.0))
-                 .xyz;
-  vec3 normal = normalize((proj.view * entity.scale * entity.rotation *
-                           proj.model * vec4(inNormals, 0.0)))
-                    .xyz;
+  vec3 pos =
+      (proj.view * entity.matrix * proj.model * vec4(inPosition, 1.0)).xyz;
+  vec3 normal =
+      normalize((proj.view * entity.matrix * proj.model * vec4(inNormals, 0.0)))
+          .xyz;
 
   outTexCoord = inTexCoord;
   outColor = entity.color;

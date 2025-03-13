@@ -6,6 +6,8 @@
 
 void Texture::destroy(const VmaAllocator& allocator, const vk::Device& device) {
   image.destroy(allocator, device);
+  diffuseMap.destroy(allocator, device);
+  specularMap.destroy(allocator, device);
 }
 
 Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {

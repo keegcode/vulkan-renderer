@@ -1,4 +1,5 @@
 #include "engine.hpp"
+#include <SDL_timer.h>
 #include <vulkan/vulkan_core.h>
 #include "VkBootstrap.h"
 #include "buffer.hpp"
@@ -108,13 +109,15 @@ void Engine::drawFrame(float deltaTime) {
   commandBuffer.begin(beginInfo);
 
   vk::ClearValue clearValue = vk::ClearValue{}.setColor(
-      vk::ClearColorValue{}.setUint32({0xFF, 0XFF, 0xFF, 0xFF}));
+      vk::ClearColorValue{}.setFloat32({0.0, 0.0, 0.0, 0.0}));
+
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
       vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
 
   vk::RenderingAttachmentInfo depthAttachment =
       vk::RenderingAttachmentInfo{}
           .setImageView(depthImage.view)
+          .setResolveMode(vk::ResolveModeFlagBits::eNone)
           .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
           .setLoadOp(vk::AttachmentLoadOp::eClear)
           .setStoreOp(vk::AttachmentStoreOp::eNone)
@@ -123,6 +126,7 @@ void Engine::drawFrame(float deltaTime) {
   vk::RenderingAttachmentInfo attachment =
       vk::RenderingAttachmentInfo{}
           .setImageView(swapImageView)
+          .setResolveMode(vk::ResolveModeFlagBits::eNone)
           .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
           .setLoadOp(vk::AttachmentLoadOp::eClear)
           .setStoreOp(vk::AttachmentStoreOp::eStore)
@@ -215,6 +219,13 @@ void Engine::drawFrame(float deltaTime) {
                             scene.projection.uniform.allocation, 0,
                             sizeof(ProjectionProperties));
 
+  Entity& object = scene.entities[1];
+  object.properties.matrix = glm::rotate(object.properties.matrix, glm::radians(0.6f), glm::vec3{0.0, 1.0, 0.0});
+
+  //vmaCopyMemoryToAllocation(allocator, &object.properties,
+  //                          object.uniform.allocation, 0,
+  //                          sizeof(EntityProperties));
+
   std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
@@ -241,9 +252,9 @@ void Engine::drawFrame(float deltaTime) {
 
     std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
     std::vector<vk::DeviceSize> descriptorOffsets{
-        scene.texturesDescriptor.layoutSize * entity.textureIdx, 0, 0,
-        scene.materialsDescriptor.layoutSize * entity.materialIdx,
-        scene.entitiesDescriptor.layoutSize * i};
+        scene.texturesDescriptor.size * entity.textureIdx, 0, 0,
+        scene.materialsDescriptor.size * entity.materialIdx,
+        scene.entitiesDescriptor.size * i};
 
     commandBuffer.setDescriptorBufferOffsetsEXT(
         vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 5,
@@ -403,7 +414,10 @@ void Engine::destroy() {
 
   destroySwapchainResources();
 
-  d.destroySampler(sampler);
+  d.destroySampler(textureSampler);
+  d.destroySampler(diffuseSampler);
+  d.destroySampler(specularSampler);
+
   d.destroyCommandPool(commandPool);
 
   d.destroyDescriptorSetLayout(uniformLayout);
@@ -640,7 +654,9 @@ void Engine::createSampler() {
           .setAnisotropyEnable(0)
           .setCompareEnable(0);
 
-  sampler = vk::Device{device}.createSampler(samplerCreateInfo);
+  textureSampler = vk::Device{device}.createSampler(samplerCreateInfo);
+  diffuseSampler = vk::Device{device}.createSampler(samplerCreateInfo);
+  specularSampler = vk::Device{device}.createSampler(samplerCreateInfo);
 }
 
 void Engine::createDescriptorSetLayouts() {
@@ -652,7 +668,27 @@ void Engine::createDescriptorSetLayouts() {
           .setDescriptorCount(1)
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-          .setImmutableSamplers(sampler);
+          .setImmutableSamplers(textureSampler);
+
+  vk::DescriptorSetLayoutBinding diffuseMapBidning =
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}
+          .setBinding(1)
+          .setImmutableSamplers(diffuseSampler);
+
+  vk::DescriptorSetLayoutBinding specularMapBinding =
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}
+          .setBinding(2)
+          .setImmutableSamplers(specularSampler);
+
+  std::vector<vk::DescriptorSetLayoutBinding> imageSamplerBindings{
+      imageSamplerBinding, diffuseMapBidning, specularMapBinding};
+
+  vk::DescriptorSetLayoutCreateInfo imageSamplerSetLayoutCreateInfo =
+      vk::DescriptorSetLayoutCreateInfo{}
+          .setBindings(imageSamplerBindings)
+          .setBindingCount(imageSamplerBindings.size())
+          .setFlags(
+              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
   vk::DescriptorSetLayoutBinding uniformBinding =
       vk::DescriptorSetLayoutBinding{}
@@ -660,13 +696,6 @@ void Engine::createDescriptorSetLayouts() {
           .setDescriptorCount(1)
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  vk::DescriptorSetLayoutCreateInfo imageSamplerSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(imageSamplerBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
   vk::DescriptorSetLayoutCreateInfo uniformSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
@@ -686,17 +715,14 @@ void Engine::loadMesh(const std::string& path) {
   scene.meshes.push_back(Mesh{allocator, path});
 }
 
-Texture Engine::loadTexture(const std::string& path) {
+Image Engine::loadImage(const std::string& path) {
   vk::Device d{device};
-  Texture texture{};
 
   Image image{allocator,   vk::Device{device},
               commandPool, queue,
               path,        vk::ImageLayout::eShaderReadOnlyOptimal};
 
-  texture.image = image;
-
-  return texture;
+  return image;
 }
 
 void Engine::loadScene(const EngineState& state) {
@@ -709,8 +735,8 @@ void Engine::loadScene(const EngineState& state) {
           vk::BufferUsageFlagBits::eShaderDeviceAddress};
   scene.projection.descriptor = Descriptor::createUniformDescriptor(
       1, uniformLayout, d, allocator, dld, descriptorBufferProperties);
-  scene.projection.descriptor.setUniformBuffer(scene.projection.uniform, 0, d,
-                                               dld, descriptorBufferProperties);
+  scene.projection.descriptor.setUniformBuffer(
+      scene.projection.uniform, 0, 0, d, dld, descriptorBufferProperties);
 
   scene.light.properties = state.light;
   scene.light.uniform =
@@ -719,7 +745,7 @@ void Engine::loadScene(const EngineState& state) {
                  vk::BufferUsageFlagBits::eShaderDeviceAddress};
   scene.light.descriptor = Descriptor::createUniformDescriptor(
       1, uniformLayout, d, allocator, dld, descriptorBufferProperties);
-  scene.light.descriptor.setUniformBuffer(scene.light.uniform, 0, d, dld,
+  scene.light.descriptor.setUniformBuffer(scene.light.uniform, 0, 0, d, dld,
                                           descriptorBufferProperties);
 
   for (const std::string& mesh : state.meshes) {
@@ -727,14 +753,23 @@ void Engine::loadScene(const EngineState& state) {
   }
 
   scene.texturesDescriptor = Descriptor::createTextureDescriptor(
-      state.textures.size(), uniformLayout, d, allocator, dld,
+      state.textures.size(), imageSamplerLayout, d, allocator, dld,
       descriptorBufferProperties);
 
   for (size_t i = 0; i < state.textures.size(); i++) {
-    const std::string& path = state.textures[i];
-    Texture texture = loadTexture(path);
-    scene.texturesDescriptor.setImage(texture.image, sampler, i, d, dld,
-                                      descriptorBufferProperties);
+    Texture texture{};
+
+    texture.image = loadImage(state.textures[i].texture);
+    texture.diffuseMap = loadImage(state.textures[i].diffuseMap);
+    texture.specularMap = loadImage(state.textures[i].specularMap);
+
+    scene.texturesDescriptor.setImage(texture.image, textureSampler, i, 0, d,
+                                      dld, descriptorBufferProperties);
+    scene.texturesDescriptor.setImage(texture.diffuseMap, diffuseSampler, i, 1,
+                                      d, dld, descriptorBufferProperties);
+    scene.texturesDescriptor.setImage(texture.specularMap, specularSampler, i,
+                                      2, d, dld, descriptorBufferProperties);
+
     scene.textures.push_back(texture);
   }
 
@@ -750,7 +785,7 @@ void Engine::loadScene(const EngineState& state) {
         Buffer{allocator, &material.properties, sizeof(MaterialProperties),
                vk::BufferUsageFlagBits::eUniformBuffer |
                    vk::BufferUsageFlagBits::eShaderDeviceAddress};
-    scene.materialsDescriptor.setUniformBuffer(material.uniform, i, d, dld,
+    scene.materialsDescriptor.setUniformBuffer(material.uniform, i, 0, d, dld,
                                                descriptorBufferProperties);
     scene.materials.push_back(material);
   }
@@ -765,7 +800,7 @@ void Engine::loadScene(const EngineState& state) {
         Buffer{allocator, &entity.properties, sizeof(EntityProperties),
                vk::BufferUsageFlagBits::eUniformBuffer |
                    vk::BufferUsageFlagBits::eShaderDeviceAddress};
-    scene.entitiesDescriptor.setUniformBuffer(entity.uniform, i, d, dld,
+    scene.entitiesDescriptor.setUniformBuffer(entity.uniform, i, 0, d, dld,
                                               descriptorBufferProperties);
     scene.entities.push_back(entity);
   }

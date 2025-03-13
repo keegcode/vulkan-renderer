@@ -8,8 +8,7 @@
 struct Descriptor {
   Buffer buffer;
   vk::DescriptorSetLayout layout;
-  vk::DeviceSize layoutSize;
-  vk::DeviceSize offset;
+  vk::DeviceSize size;
   vk::DeviceOrHostAddressConstKHR address;
   vk::DescriptorType type;
 
@@ -32,7 +31,8 @@ struct Descriptor {
           descriptorBufferProperties);
 
   void setUniformBuffer(const Buffer& src,
-                        uint32_t offset,
+                        uint32_t index,
+                        uint32_t binding,
                         const vk::Device& device,
                         const vk::detail::DispatchLoaderDynamic& dld,
                         const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
@@ -40,11 +40,16 @@ struct Descriptor {
 
   void setImage(const Image& src,
                 const vk::Sampler& sampler,
-                uint32_t offset,
+                uint32_t index,
+                uint32_t binding,
                 const vk::Device& device,
                 const vk::detail::DispatchLoaderDynamic& dld,
                 const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
                     descriptorBufferProperties);
+
+  vk::DeviceSize getOffset(const vk::Device& device,
+                           uint32_t binding,
+                           const vk::detail::DispatchLoaderDynamic& dld);
 
   void destroy(const VmaAllocator& allocator);
 };

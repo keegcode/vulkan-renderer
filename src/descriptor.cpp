@@ -16,17 +16,15 @@ Descriptor Descriptor::createUniformDescriptor(
     const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
         descriptorBufferProperties) {
   Descriptor descriptor{};
+  descriptor.layout = layout;
   descriptor.type = vk::DescriptorType::eUniformBuffer;
 
-  descriptor.layoutSize = utils::getAlignedSize(
+  descriptor.size = utils::getAlignedSize(
       device.getDescriptorSetLayoutSizeEXT(layout, dld),
       descriptorBufferProperties.descriptorBufferOffsetAlignment);
 
-  descriptor.offset =
-      device.getDescriptorSetLayoutBindingOffsetEXT(layout, 0, dld);
-
   descriptor.buffer =
-      Buffer{allocator, descriptor.layoutSize * static_cast<uint32_t>(count),
+      Buffer{allocator, descriptor.size * static_cast<uint32_t>(count),
              vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
                  vk::BufferUsageFlagBits::eShaderDeviceAddress,
              VMA_MEMORY_USAGE_AUTO,
@@ -48,17 +46,15 @@ Descriptor Descriptor::createTextureDescriptor(
     const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
         descriptorBufferProperties) {
   Descriptor descriptor{};
+  descriptor.layout = layout;
   descriptor.type = vk::DescriptorType::eCombinedImageSampler;
 
-  descriptor.layoutSize = utils::getAlignedSize(
+  descriptor.size = utils::getAlignedSize(
       device.getDescriptorSetLayoutSizeEXT(layout, dld),
       descriptorBufferProperties.descriptorBufferOffsetAlignment);
 
-  descriptor.offset =
-      device.getDescriptorSetLayoutBindingOffsetEXT(layout, 0, dld);
-
   descriptor.buffer =
-      Buffer{allocator, descriptor.layoutSize * static_cast<uint32_t>(count),
+      Buffer{allocator, descriptor.size * static_cast<uint32_t>(count),
              vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
                  vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
                  vk::BufferUsageFlagBits::eShaderDeviceAddress,
@@ -75,6 +71,7 @@ Descriptor Descriptor::createTextureDescriptor(
 void Descriptor::setUniformBuffer(
     const Buffer& src,
     uint32_t index,
+    uint32_t binding,
     const vk::Device& device,
     const vk::detail::DispatchLoaderDynamic& dld,
     const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
@@ -87,22 +84,24 @@ void Descriptor::setUniformBuffer(
           .setRange(src.size)
           .setFormat(vk::Format::eUndefined)
           .setAddress(src.getDeviceAddress(device));
-
   vk::DescriptorGetInfoEXT uniformDescriptorInfo =
       vk::DescriptorGetInfoEXT{}
           .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
               &uniformDescriptorAddressInfo))
           .setType(type);
 
+  vk::DeviceSize offset = getOffset(device, binding, dld);
+
   device.getDescriptorEXT(
       uniformDescriptorInfo,
       descriptorBufferProperties.uniformBufferDescriptorSize,
-      uniformDescriptorPtr + (index * layoutSize) + offset, dld);
+      uniformDescriptorPtr + (index * size) + offset, dld);
 }
 
 void Descriptor::setImage(const Image& src,
                           const vk::Sampler& sampler,
                           uint32_t index,
+                          uint32_t binding,
                           const vk::Device& device,
                           const vk::detail::DispatchLoaderDynamic& dld,
                           const vk::PhysicalDeviceDescriptorBufferPropertiesEXT&
@@ -122,8 +121,17 @@ void Descriptor::setImage(const Image& src,
               &textureProjectionDescriptorImageInfo))
           .setType(type);
 
+  vk::DeviceSize offset = getOffset(device, binding, dld);
+
   device.getDescriptorEXT(
       textureDescriptorInfo,
       descriptorBufferProperties.combinedImageSamplerDescriptorSize,
-      textureDescriptorPtr + (index * layoutSize) + offset, dld);
+      textureDescriptorPtr + (index * size) + offset, dld);
+}
+
+vk::DeviceSize Descriptor::getOffset(
+    const vk::Device& device,
+    uint32_t binding,
+    const vk::detail::DispatchLoaderDynamic& dld) {
+  return device.getDescriptorSetLayoutBindingOffsetEXT(layout, binding, dld);
 }

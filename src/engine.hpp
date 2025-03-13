@@ -10,13 +10,19 @@
 #include "pipeline.hpp"
 #include "scene.hpp"
 
+struct SetTexture {
+  std::string texture;
+  std::string diffuseMap;
+  std::string specularMap;
+};
+
 struct EngineState {
   ProjectionProperties projection;
   LightProperties light;
   std::vector<Entity> entities;
   std::vector<MaterialProperties> materials;
   std::vector<std::string> meshes;
-  std::vector<std::string> textures;
+  std::vector<SetTexture> textures;
 };
 
 class Engine {
@@ -70,7 +76,9 @@ class Engine {
   vk::Viewport viewport;
   vk::Rect2D scissors;
 
-  vk::Sampler sampler;
+  vk::Sampler textureSampler;
+  vk::Sampler diffuseSampler;
+  vk::Sampler specularSampler;
 
   void createInstance();
   void pickPhysicalDevice();
@@ -91,5 +99,5 @@ class Engine {
   void loadScene(const EngineState& state);
 
   void loadMesh(const std::string& path);
-  Texture loadTexture(const std::string& path);
+  Image loadImage(const std::string& path);
 };
