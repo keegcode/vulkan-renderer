@@ -35,6 +35,11 @@ layout(set = 3, binding = 0) uniform Material {
 material;
 
 void main() {
+  if (material.light) {
+    outColor = vec4(inColor, 1.0);
+    return;
+  }
+
   vec3 normal = normalize(inNormals);
 
   vec3 direction =
@@ -52,14 +57,7 @@ void main() {
 
   vec3 shadow = (specular + ambient + diffuse);
 
-  if (material.light) {
-    outColor = vec4(inColor, 1.0);
-    return;
-  }
+  vec3 color = material.solid ? inColor : texture(tex0, inTexCoord).xyz;
 
-  if (material.solid) {
-    outColor = vec4(inColor * shadow, 1.0);
-  } else {
-    outColor = vec4(texture(tex0, inTexCoord).xyz * shadow, 1.0);
-  }
+  outColor = vec4(color * shadow, 1.0);
 }
