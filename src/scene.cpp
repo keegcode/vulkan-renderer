@@ -31,9 +31,9 @@ Mesh::Mesh(const VmaAllocator& allocator, const std::string_view path) {
     for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
       Vertex vertex{};
 
-      vertex.pos[0] = assimpMesh->mVertices[j].x;
-      vertex.pos[1] = assimpMesh->mVertices[j].y;
-      vertex.pos[2] = assimpMesh->mVertices[j].z;
+      vertex.position[0] = assimpMesh->mVertices[j].x;
+      vertex.position[1] = assimpMesh->mVertices[j].y;
+      vertex.position[2] = assimpMesh->mVertices[j].z;
 
       vertex.normals[0] = assimpMesh->mNormals[j].x;
       vertex.normals[1] = assimpMesh->mNormals[j].y;
@@ -78,20 +78,28 @@ void Mesh::destroy(const VmaAllocator& allocator) {
 
 void Scene::destroy(const VmaAllocator& allocator) {
   projection.descriptor.destroy(allocator);
-  projection.uniform.destroy(allocator);
 
-  light.descriptor.destroy(allocator);
+  projection.uniform.destroy(allocator);
   light.uniform.destroy(allocator);
 
-  texturesDescriptor.destroy(allocator);
+  directionalLight.uniform.destroy(allocator);
 
+  texturesDescriptor.destroy(allocator);
+  lightsDescriptor.destroy(allocator);
   materialsDescriptor.destroy(allocator);
+  entitiesDescriptor.destroy(allocator);
 
   for (Material& material : materials) {
     material.uniform.destroy(allocator);
   }
 
-  entitiesDescriptor.destroy(allocator);
+  for (PointLight& l : pointLights) {
+    l.uniform.destroy(allocator);
+  }
+
+  for (SpotLight& l : spotLights) {
+    l.uniform.destroy(allocator);
+  }
 
   for (Entity& entity : entities) {
     entity.uniform.destroy(allocator);

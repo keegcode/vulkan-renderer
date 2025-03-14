@@ -6,7 +6,7 @@
 #include "image.hpp"
 
 struct Vertex {
-  float pos[3];
+  float position[3];
   float clr[3];
   float uv[2];
   float normals[3];
@@ -28,6 +28,7 @@ struct ProjectionProperties {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 perspective;
+  alignas(16) glm::vec3 camera;
 };
 
 struct EntityProperties {
@@ -49,17 +50,55 @@ struct MaterialProperties {
   alignas(4) bool light;
 };
 
-struct LightProperties {
-  alignas(16) glm::vec3 pos;
+struct DirectionalLightProperties {
+  alignas(16) glm::vec3 direction;
   alignas(16) glm::vec3 ambient;
   alignas(16) glm::vec3 diffuse;
   alignas(16) glm::vec3 specular;
 };
 
+struct PointLightProperties {
+  glm::vec3 position;
+  float constant;
+  glm::vec3 ambient;
+  float linear;
+  glm::vec3 diffuse;
+  float quadratic;
+  alignas(16) glm::vec3 specular;
+};
+
+struct SpotLightProperties {
+  glm::vec3 direction;
+  float constant;
+  glm::vec3 position;
+  float linear;
+  glm::vec3 ambient;
+  float quadratic;
+  glm::vec3 diffuse;
+  float cutOff;
+  glm::vec3 specular;
+  float outerCutOff;
+};
+
+struct SpotLight {
+  Buffer uniform;
+  SpotLightProperties properties;
+};
+
+struct PointLight {
+  Buffer uniform;
+  PointLightProperties properties;
+};
+
+struct DirectionalLight {
+  Buffer uniform;
+  DirectionalLightProperties properties;
+};
+
 enum class CameraMode { Fixed, Move };
 
 struct Camera {
-  glm::vec3 pos = glm::vec3{0.0, 0.0, 0.0};
+  glm::vec3 position = glm::vec3{0.0, 0.0, 0.0};
   glm::vec3 up = glm::vec3{0.0, 1.0, 0.0};
   glm::vec3 front = glm::vec3{0.0, 0.0, -1.0};
   glm::vec3 right = glm::normalize(glm::cross(this->front, this->up));
@@ -86,20 +125,29 @@ struct Material {
   Buffer uniform;
 };
 
-struct Light {
-  Buffer uniform;
-  Descriptor descriptor;
-  LightProperties properties;
-};
-
 struct Projection {
   Buffer uniform;
   Descriptor descriptor;
   ProjectionProperties properties;
 };
 
+struct SceneLightProperties {
+  uint32_t pointLights;
+  uint32_t spotLights;
+};
+
+struct SceneLight {
+  Buffer uniform;
+  SceneLightProperties properties;
+};
+
 struct Scene {
-  Light light;
+  DirectionalLight directionalLight;
+  std::vector<PointLight> pointLights;
+  std::vector<SpotLight> spotLights;
+
+  SceneLight light;
+
   Projection projection;
   Camera camera;
 
@@ -107,10 +155,11 @@ struct Scene {
   std::vector<Material> materials;
   std::vector<Texture> textures;
   std::vector<Mesh> meshes;
-
+  
   Descriptor entitiesDescriptor;
   Descriptor materialsDescriptor;
   Descriptor texturesDescriptor;
+  Descriptor lightsDescriptor;
 
   void destroy(const VmaAllocator& allocator);
 };

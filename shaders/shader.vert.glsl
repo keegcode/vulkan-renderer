@@ -24,16 +24,16 @@ layout(set = 4, binding = 0) uniform Entity {
 entity;
 
 void main() {
-  vec3 pos =
-      (proj.view * entity.matrix * proj.model * vec4(inPosition, 1.0)).xyz;
-  vec3 normal =
-      normalize((proj.view * entity.matrix * proj.model * vec4(inNormals, 0.0)))
-          .xyz;
+  vec4 pos =
+      (entity.matrix * proj.model * vec4(inPosition, 1.0));
+
+  vec4 normal =
+      (entity.matrix * proj.model * vec4(inNormals, 0.0));
 
   outTexCoord = inTexCoord;
   outColor = entity.color;
-  outNormals = normal;
-  outFragPos = pos;
+  outNormals = vec3(normal);
+  outFragPos = vec3(pos);
 
-  gl_Position = proj.perspective * vec4(pos, 1.0);
+  gl_Position = proj.perspective * vec4(vec3(proj.view * pos), 1.0);
 }

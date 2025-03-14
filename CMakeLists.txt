@@ -12,7 +12,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Vulkan 1.3 REQUIRED)          
-find_package(SDL2 REQUIRED)          
+find_package(SDL3 REQUIRED)          
 find_package(glm REQUIRED)         
 find_package(assimp REQUIRED) 
 
@@ -52,7 +52,7 @@ target_link_libraries(${PROJECT_NAME}
         assimp
         glm::glm
         Vulkan::Vulkan
-        SDL2::SDL2
+        SDL3::SDL3
 )
 
 if(MSVC)

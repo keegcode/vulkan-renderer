@@ -1,14 +1,16 @@
 #pragma once
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <vulkan/vulkan_core.h>
 #include <vector>
 
 class Display {
  public:
   SDL_Window* window;
-  SDL_DisplayMode displayMode;
   std::vector<const char*> vulkanExtensions;
+
+  uint32_t width;
+  uint32_t height;
 
   void init();
   void destroy();

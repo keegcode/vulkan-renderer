@@ -18,7 +18,9 @@ struct SetTexture {
 
 struct EngineState {
   ProjectionProperties projection;
-  LightProperties light;
+  DirectionalLightProperties directionalLight;
+  std::vector<PointLightProperties> pointLights;
+  std::vector<SpotLightProperties> spotLights;
   std::vector<Entity> entities;
   std::vector<MaterialProperties> materials;
   std::vector<std::string> meshes;
@@ -67,6 +69,7 @@ class Engine {
 
   vk::DescriptorSetLayout imageSamplerLayout;
   vk::DescriptorSetLayout uniformLayout;
+  vk::DescriptorSetLayout lightLayout;
 
   vk::CommandPool commandPool;
   vk::CommandBuffer commandBuffer;

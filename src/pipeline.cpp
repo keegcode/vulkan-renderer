@@ -28,7 +28,7 @@ void Pipeline::createVertexInputState() {
       vk::VertexInputAttributeDescription{}
           .setBinding(0)
           .setLocation(0)
-          .setOffset(offsetof(Vertex, pos))
+          .setOffset(offsetof(Vertex, position))
           .setFormat(vk::Format::eR32G32B32Sfloat);
 
   vk::VertexInputAttributeDescription vertexColorAttributeDescription =

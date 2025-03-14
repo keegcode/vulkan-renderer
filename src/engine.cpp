@@ -1,5 +1,6 @@
 #include "engine.hpp"
-#include <SDL_timer.h>
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_timer.h>
 #include <vulkan/vulkan_core.h>
 #include "VkBootstrap.h"
 #include "buffer.hpp"
@@ -7,10 +8,14 @@
 #include "scene.hpp"
 #include "utils.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <glm/common.hpp>
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_transform.hpp>
+#include <random>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -213,18 +218,26 @@ void Engine::drawFrame(float deltaTime) {
   std::vector<vk::DeviceSize> offsets = {0};
 
   scene.projection.properties.view = glm::lookAt(
-      scene.camera.pos, scene.camera.pos + scene.camera.front, scene.camera.up);
+      scene.camera.position, scene.camera.position + scene.camera.front, scene.camera.up);
+
+  scene.projection.properties.camera = scene.camera.position;
+
+  PointLight& pointLight = scene.pointLights[0];
+  Entity& pointLightEntity = scene.entities[1];
+  
+  double n = SDL_GetTicks() / (1000.0f);
+  float x = 5.0f * glm::cos(n);
+  float z = 6.0f * glm::sin(n);
+
+  pointLight.properties.position = glm::vec3{x, 0.0f, z};
+  pointLightEntity.properties.matrix = glm::scale(glm::translate(glm::mat4{1.0f}, pointLight.properties.position), glm::vec3{0.3f});
+
+  vmaCopyMemoryToAllocation(allocator, &pointLight.properties, pointLight.uniform.allocation, 0, sizeof(PointLightProperties));
+  vmaCopyMemoryToAllocation(allocator, &pointLightEntity.properties, pointLightEntity.uniform.allocation, 0, sizeof(EntityProperties));
 
   vmaCopyMemoryToAllocation(allocator, &scene.projection.properties,
                             scene.projection.uniform.allocation, 0,
                             sizeof(ProjectionProperties));
-
-  Entity& object = scene.entities[1];
-  object.properties.matrix = glm::rotate(object.properties.matrix, glm::radians(0.6f), glm::vec3{0.0, 1.0, 0.0});
-
-  //vmaCopyMemoryToAllocation(allocator, &object.properties,
-  //                          object.uniform.allocation, 0,
-  //                          sizeof(EntityProperties));
 
   std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
       vk::DescriptorBufferBindingInfoEXT{}
@@ -236,7 +249,7 @@ void Engine::drawFrame(float deltaTime) {
           .setAddress(scene.projection.descriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(scene.light.descriptor.address.deviceAddress),
+          .setAddress(scene.lightsDescriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
           .setAddress(scene.materialsDescriptor.address.deviceAddress),
@@ -251,6 +264,7 @@ void Engine::drawFrame(float deltaTime) {
     const Mesh& mesh = scene.meshes[entity.meshIdx];
 
     std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
+
     std::vector<vk::DeviceSize> descriptorOffsets{
         scene.texturesDescriptor.size * entity.textureIdx, 0, 0,
         scene.materialsDescriptor.size * entity.materialIdx,
@@ -324,59 +338,55 @@ void Engine::drawFrame(float deltaTime) {
 void Engine::processInput(float deltaTime) {
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
-    if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE) {
       isRunning = false;
       break;
     }
-    if (event.type == SDL_WINDOWEVENT &&
-        event.window.event == SDL_WINDOWEVENT_CLOSE) {
+    if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
       isRunning = false;
       break;
     }
-    if (event.type == SDL_WINDOWEVENT &&
-        event.window.event == SDL_WINDOWEVENT_RESIZED) {
+    if (event.type == SDL_EVENT_WINDOW_RESIZED) {
       shouldBeResized = true;
     }
-    if (event.type == SDL_MOUSEBUTTONDOWN &&
-        event.button.button == SDL_BUTTON_RIGHT) {
-      SDL_SetRelativeMouseMode(SDL_TRUE);
-      SDL_SetWindowGrab(display.window, SDL_TRUE);
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_RIGHT) {
+      SDL_SetWindowRelativeMouseMode(display.window, true);
+      SDL_SetWindowMouseGrab(display.window, true);
       scene.camera.mode = CameraMode::Move;
     }
-    if (event.type == SDL_MOUSEBUTTONUP &&
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
         event.button.button == SDL_BUTTON_RIGHT) {
-      SDL_SetRelativeMouseMode(SDL_FALSE);
-      SDL_SetWindowGrab(display.window, SDL_FALSE);
+      SDL_SetWindowRelativeMouseMode(display.window, false);
+      SDL_SetWindowMouseGrab(display.window, false);
       scene.camera.mode = CameraMode::Fixed;
     }
-    if (event.type == SDL_KEYDOWN && scene.camera.mode == CameraMode::Move) {
-      switch (event.key.keysym.sym) {
-        case SDLK_w:
-          scene.camera.pos +=
+    if (event.type == SDL_EVENT_KEY_DOWN && scene.camera.mode == CameraMode::Move) {
+      switch (event.key.scancode) {
+        case SDL_SCANCODE_W:
+          scene.camera.position +=
               scene.camera.front * scene.camera.velocity * deltaTime;
           break;
-        case SDLK_s:
-          scene.camera.pos -=
+        case SDL_SCANCODE_S:
+          scene.camera.position -=
               scene.camera.front * scene.camera.velocity * deltaTime;
           break;
-        case SDLK_a:
-          scene.camera.pos -=
+        case SDL_SCANCODE_A:
+          scene.camera.position -=
               scene.camera.right * scene.camera.velocity * deltaTime;
           break;
-        case SDLK_d:
-          scene.camera.pos +=
+        case SDL_SCANCODE_D:
+          scene.camera.position +=
               scene.camera.right * scene.camera.velocity * deltaTime;
           break;
         default:
           break;
       }
     }
-    if (event.type == SDL_MOUSEMOTION &&
+    if (event.type == SDL_EVENT_MOUSE_MOTION &&
         scene.camera.mode == CameraMode::Move) {
       scene.camera.yaw += event.motion.xrel * scene.camera.sensitivity;
       scene.camera.pitch += -event.motion.yrel * scene.camera.sensitivity;
-
-      scene.camera.pitch = std::clamp(scene.camera.pitch, -90.0f, 90.0f);
+scene.camera.pitch = std::clamp(scene.camera.pitch, -90.0f, 90.0f);
 
       glm::vec3 front{0.0f};
 
@@ -422,6 +432,7 @@ void Engine::destroy() {
 
   d.destroyDescriptorSetLayout(uniformLayout);
   d.destroyDescriptorSetLayout(imageSamplerLayout);
+  d.destroyDescriptorSetLayout(lightLayout);
 
   scene.destroy(allocator);
 
@@ -630,7 +641,7 @@ void Engine::createPipeline() {
   vk::Device d = vk::Device{device};
 
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      imageSamplerLayout, uniformLayout, uniformLayout,
+      imageSamplerLayout, uniformLayout, lightLayout,
       uniformLayout,      uniformLayout,
   };
 
@@ -696,6 +707,19 @@ void Engine::createDescriptorSetLayouts() {
           .setDescriptorCount(1)
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eUniformBuffer);
+  
+  std::vector<vk::DescriptorSetLayoutBinding> lightBindings = {
+    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(0),
+    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(1),
+    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(2).setDescriptorCount(8),
+    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(3).setDescriptorCount(8),
+  };
+
+  vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
+      .setBindings(lightBindings)
+      .setBindingCount(lightBindings.size())
+      .setFlags(
+          vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
   vk::DescriptorSetLayoutCreateInfo uniformSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
@@ -709,6 +733,9 @@ void Engine::createDescriptorSetLayouts() {
 
   uniformLayout =
       d.createDescriptorSetLayout(uniformSetLayoutCreateInfo, nullptr);
+
+  lightLayout =
+      d.createDescriptorSetLayout(lightSetLayoutCreateInfo, nullptr);
 }
 
 void Engine::loadMesh(const std::string& path) {
@@ -738,15 +765,54 @@ void Engine::loadScene(const EngineState& state) {
   scene.projection.descriptor.setUniformBuffer(
       scene.projection.uniform, 0, 0, d, dld, descriptorBufferProperties);
 
-  scene.light.properties = state.light;
+  scene.lightsDescriptor = Descriptor::createUniformDescriptor(1, lightLayout, d, allocator, dld, descriptorBufferProperties);
+
+  scene.light.properties = {static_cast<uint32_t>(state.pointLights.size()), static_cast<uint32_t>(state.spotLights.size())};
   scene.light.uniform =
-      Buffer{allocator, &scene.light.properties, sizeof(LightProperties),
+      Buffer{allocator, &scene.light.properties, sizeof(SceneLightProperties),
              vk::BufferUsageFlagBits::eUniformBuffer |
                  vk::BufferUsageFlagBits::eShaderDeviceAddress};
-  scene.light.descriptor = Descriptor::createUniformDescriptor(
-      1, uniformLayout, d, allocator, dld, descriptorBufferProperties);
-  scene.light.descriptor.setUniformBuffer(scene.light.uniform, 0, 0, d, dld,
+
+  scene.lightsDescriptor.setUniformBuffer(scene.light.uniform, 0, 0, d, dld,
                                           descriptorBufferProperties);
+
+  scene.directionalLight.properties = state.directionalLight;
+
+  scene.directionalLight.uniform =
+      Buffer{allocator, &scene.directionalLight.properties, sizeof(DirectionalLightProperties),
+             vk::BufferUsageFlagBits::eUniformBuffer |
+                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
+
+  scene.lightsDescriptor.setUniformBuffer(scene.directionalLight.uniform, 0, 1, d, dld,
+                                          descriptorBufferProperties);
+
+  for (size_t i = 0; i < state.pointLights.size(); i++) {
+    const PointLightProperties& point = state.pointLights[i];
+    PointLight light{};
+    light.properties = point;
+    light.uniform = Buffer{allocator, &point, sizeof(PointLightProperties),
+             vk::BufferUsageFlagBits::eUniformBuffer |
+                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
+
+    scene.lightsDescriptor.setUniformBuffer(light.uniform, i, 2, d, dld,
+                                            descriptorBufferProperties);
+
+    scene.pointLights.push_back(light);
+  }
+
+  for (size_t i = 0; i < state.spotLights.size(); i++) {
+    const SpotLightProperties& spot = state.spotLights[i];
+    SpotLight light{};
+    light.properties = spot;
+    light.uniform = Buffer{allocator, &spot, sizeof(SpotLightProperties),
+             vk::BufferUsageFlagBits::eUniformBuffer |
+                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
+
+    scene.lightsDescriptor.setUniformBuffer(light.uniform, i, 3, d, dld,
+                                            descriptorBufferProperties);
+
+    scene.spotLights.push_back(light);
+  }
 
   for (const std::string& mesh : state.meshes) {
     loadMesh(mesh);
