@@ -24,22 +24,12 @@ add_executable(${PROJECT_NAME}
   src/main.cpp 
   src/engine.cpp 
   src/engine.hpp 
-  src/image.cpp
-  src/image.hpp
-  src/buffer.cpp
-  src/buffer.hpp
   src/display.cpp
   src/display.hpp
-  src/shader.cpp
-  src/shader.hpp
-  src/scene.cpp
-  src/scene.hpp
-  src/descriptor.cpp
-  src/descriptor.hpp
+  src/gpu.cpp
+  src/gpu.hpp
   src/utils.cpp
   src/utils.hpp
-  src/pipeline.cpp
-  src/pipeline.hpp
   src/stb_image.h
   src/vk_mem_alloc.h
   src/VkBootstrap.cpp

@@ -1,143 +1,82 @@
 #include <glm/ext/vector_float3.hpp>
-#include "scene.hpp"
+#include <utility>
 
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
-#include "vk_mem_alloc.h"
-
 #include "engine.hpp"
+#include "vk_mem_alloc.h"
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
-
-std::vector<glm::vec3> cubePositions = {
-    glm::vec3( 0.0f,  0.0f,  0.0f), 
-    glm::vec3( 2.0f,  5.0f, -15.0f), 
-    glm::vec3(-1.5f, -2.2f, -2.5f),  
-    glm::vec3(-3.8f, -2.0f, -12.3f),  
-    glm::vec3( 2.4f, -0.4f, -3.5f),  
-    glm::vec3(-1.7f,  3.0f, -7.5f),  
-    glm::vec3( 1.3f, -2.0f, -2.5f),  
-    glm::vec3( 1.5f,  2.0f, -2.5f), 
-    glm::vec3( 1.5f,  0.2f, -1.5f), 
-    glm::vec3(-1.3f,  1.0f, -1.5f)  
-};
 
 int32_t main() {
   Display display{};
   display.init();
 
-  Engine engine{};
-  EngineState state{};
+  GPU gpu{display};
+
+  Engine engine{display, gpu};
+  EngineConfig config{};
 
   glm::mat4 model{1.0f};
   glm::mat4 view{1.0f};
   glm::mat4 perspective{1.0f};
 
-  perspective = glm::perspective(
-      glm::radians(60.0f), display.width / (float)display.height,
-      0.1f, 100.0f);
+  perspective =
+      glm::perspective(glm::radians(60.0f),
+                       display.width / (float)display.height, 0.1f, 500.0f);
 
   perspective[1][1] *= -1;
 
-  ProjectionProperties proj{model, view, perspective};
-  state.projection = proj;
+  Projection proj{model, view, perspective};
+  config.projection = proj;
 
-  state.meshes.push_back("./assets/cube.obj");
-  state.meshes.push_back("./assets/suzanne.obj");
+  config.assets.push_back("./assets/Sponza/glTF/Sponza.gltf");
+  config.assets.push_back("./assets/DamagedHelmet/glTF/DamagedHelmet.gltf");
 
-  state.textures.push_back({"./textures/default.jpg", "./textures/default.jpg",
-                            "./textures/default.jpg"});
+  config.directionalLight.direction = glm::vec3{1.0, -1.0, 0.0};
+  config.directionalLight.position = glm::vec3{0.0, 100.0, 0.0};
+  config.directionalLight.ambient = glm::vec3{0.1};
+  config.directionalLight.diffuse = glm::vec3{0.01};
+  config.directionalLight.specular = glm::vec3{0.4};
 
-  state.textures.push_back({"./textures/container2.png",
-                            "./textures/container2.png",
-                            "./textures/container2_specular.png"});
-
-  MaterialProperties lightMaterial{};
-  lightMaterial.light = true;
-  lightMaterial.shininess = 1.0;
-
-  MaterialProperties material{};
-  material.solid = true;
-  material.light = false;
-  material.specular = glm::vec3{1.0};
-  material.shininess = 256.0;
-
-  state.materials.push_back(lightMaterial);
-  state.materials.push_back(material);
-  
-  Entity light;
-  light.meshIdx = 0;
-  light.materialIdx = 0;
-  light.textureIdx = 0;
-  light.properties.color = glm::vec3{1.0};
-    
-  DirectionalLightProperties directionalLight{};
-  directionalLight.direction = glm::vec3{0.0, -1.0, 0.0};
-  directionalLight.ambient = glm::vec3{0.1};
-  directionalLight.diffuse = glm::vec3{0.1};
-  directionalLight.specular = glm::vec3{0.1};
-
-  PointLightProperties pointLight{};
-  pointLight.position = glm::vec3{0.0, 0.0, -5.0};
-  pointLight.ambient = glm::vec3{0.08};
-  pointLight.diffuse = glm::vec3{1.0};
+  PointLight pointLight{};
+  pointLight.position = glm::vec3{0.0, 5.0, 100.0};
+  pointLight.ambient = glm::vec3{0.1};
+  pointLight.diffuse = glm::vec3{0.8};
   pointLight.specular = glm::vec3{0.7};
   pointLight.constant = 1.0;
-  pointLight.linear = 0.02;
-  pointLight.quadratic = 0.016;
+  pointLight.linear = 0.002;
+  pointLight.quadratic = 0.00032;
+  config.pointLights.push_back(pointLight);
 
-
-  SpotLightProperties spotLight{};
-  spotLight.position = glm::vec3{-2.0, 0.0, 0.0};
-  spotLight.direction = glm::vec3{1.0, 0.0, 0.0};
-  spotLight.cutOff = glm::cos(glm::radians(7.0f));
-  spotLight.outerCutOff = glm::cos(glm::radians(13.0f));
-  spotLight.ambient = glm::vec3{0.06};
+  SpotLight spotLight{};
+  spotLight.position = glm::vec3{0.0, 100.0, 5.0f};
+  spotLight.direction = glm::vec3{0.0, -1.0, 0.0};
+  spotLight.cutOff = glm::cos(glm::radians(10.0f));
+  spotLight.outerCutOff = glm::cos(glm::radians(30.0f));
+  spotLight.ambient = glm::vec3{0.1};
   spotLight.diffuse = glm::vec3{0.8};
   spotLight.specular = glm::vec3{0.7};
   spotLight.constant = 1.0;
-  spotLight.linear = 0.2;
-  spotLight.quadratic = 0.16;
+  spotLight.linear = 0.0002;
+  spotLight.quadratic = 0.000016;
+  config.spotLights.push_back(spotLight);
 
-  state.directionalLight = directionalLight;
-  light.properties.matrix = glm::scale(glm::translate(glm::mat4{1.0}, glm::vec3{0.0, 5.0, 0.0}), glm::vec3{0.2});
-  state.entities.push_back(light);
+  Entity sponza{};
+  sponza.matrix = glm::translate(glm::rotate(glm::scale(glm::mat4{1.0f}, glm::vec3{0.1f}), glm::radians(90.0f), glm::vec3{0.0, 1.0, 0.0}), glm::vec3{0.0, 0.0f, 0.0f});
+  sponza.assetIdx = 1;
 
-  state.pointLights.push_back(pointLight);
-  light.properties.matrix = glm::scale(glm::translate(glm::mat4{1.0}, pointLight.position), glm::vec3{0.2});
-  state.entities.push_back(light);
+  Entity helmet{};
+  helmet.matrix = glm::translate(glm::rotate(glm::scale(glm::mat4{1.0f}, glm::vec3{4.0f}), glm::radians(90.0f), glm::vec3{1.0, 0.0, 0.0}), glm::vec3{0.0, -5.0f, -5.0f});
+  helmet.assetIdx = 2;
 
-  state.spotLights.push_back(spotLight);
-  light.properties.matrix = glm::scale(glm::translate(glm::mat4{1.0}, spotLight.position), glm::vec3{0.2});
-  state.entities.push_back(light);
+  config.entities.push_back(sponza);
+  config.entities.push_back(helmet);
 
-  for(size_t i = 0; i < cubePositions.size(); i++) {
-    const glm::vec3& pos = cubePositions[i];
-    Entity entity{};
-    
-    entity.properties.matrix =
-        glm::scale(glm::translate(glm::mat4{.0f}, glm::vec3{0.0, 0.0, -10.0}),
-                   glm::vec3{.5f});
-    entity.properties.color = glm::vec3{0.5};
-    entity.textureIdx = 1;
-    entity.meshIdx = 0;
-    entity.materialIdx = 1;
-
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::translate(model, pos);
-    float angle = 20.0f * i;
-    model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
-    model = glm::scale(model, glm::vec3{0.5f});
-
-    entity.properties.matrix = model;
-
-    state.entities.push_back(entity);
-  }
-
-  engine.init(display, state);
+  engine.init(config);
 
   float previousTicks = SDL_GetTicks();
   float deltaTime;

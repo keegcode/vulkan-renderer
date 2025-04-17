@@ -1,330 +1,199 @@
 #include "engine.hpp"
+
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_timer.h>
+
+#include <assimp/material.h>
+#include <assimp/mesh.h>
+#include <assimp/postprocess.h>
+#include <assimp/scene.h>
+#include <assimp/types.h>
 #include <vulkan/vulkan_core.h>
-#include "VkBootstrap.h"
-#include "buffer.hpp"
-#include "image.hpp"
-#include "scene.hpp"
-#include "utils.hpp"
 
 #include <algorithm>
+#include <assimp/Importer.hpp>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <unordered_map>
+#include <vector>
+
 #include <glm/common.hpp>
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_transform.hpp>
-#include <random>
+
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
-#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
 
-void Engine::init(const Display& d, const EngineState& state) {
-  display = d;
-  createInstance();
-  pickPhysicalDevice();
-  pickDevice();
-  createSwapchain();
-  createAllocator();
-  createQueue();
-  createSyncPrimitives();
-  createCommandPool();
-  createCommandBuffer();
-  createSampler();
-  createDescriptorSetLayouts();
-  loadScene(state);
-  createDepthImage();
-  createViewportAndScissors();
+#include "gpu.hpp"
+#include "stb_image.h"
+
+Engine::Engine(const Display& d, const GPU& g) : display{d}, gpu{g} {};
+
+void Engine::init(const EngineConfig& config) {
+  gpu.createInstance();
+  gpu.pickPhysicalDevice();
+  gpu.pickDevice();
+  gpu.createSwapchain();
+  gpu.createAllocator();
+  gpu.createQueue();
+  gpu.createSyncPrimitives();
+  gpu.createCommandPool();
+  gpu.createCommandBuffer();
+  gpu.createSampler();
+  gpu.createDescriptorSetLayouts();
+
+  loadStatic();
+  loadSkybox();
+  loadConfig(config);
+
+  gpu.createDepthImage();
+  gpu.createViewportAndScissors();
   createPipeline();
 }
 
-void Engine::destroySwapchainResources() {
-  vk::Device d = device.device;
-
-  for (const vk::ImageView imageView : swapchainImageViews) {
-    d.destroyImageView(imageView);
-  }
-
-  d.destroyImageView(depthImage.view);
-  vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
-}
-
-void Engine::rebuiltSwapchain() {
-  vk::Device d = device.device;
-  vkb::Swapchain old = swapchain;
-
-  d.waitIdle();
-
-  destroySwapchainResources();
-
-  createSwapchain();
-  createDepthImage();
-  createViewportAndScissors();
-
-  vkb::destroy_swapchain(old);
-}
-
 void Engine::drawFrame(float deltaTime) {
-  vk::Device d = device.device;
-
-  if (d.waitForFences(1, &fence, 1, UINT64_MAX) != vk::Result::eSuccess) {
-    throw std::runtime_error{"Failed to wait for fence"};
-  };
+  gpu.waitForFence();
 
   if (shouldBeResized) {
-    rebuiltSwapchain();
+    gpu.rebuiltSwapchain();
     shouldBeResized = false;
   }
 
-  vk::SwapchainKHR swap = swapchain.swapchain;
+  int32_t imageIndex = gpu.acquireNextImage();
 
-  uint32_t imageIndex;
-  vk::Result acquireResult = d.acquireNextImageKHR(
-      swap, UINT64_MAX, presentCompleteSemaphore, nullptr, &imageIndex);
-
-  vk::ImageView swapImageView = swapchainImageViews[imageIndex];
-  vk::Image swapImage = swapchainImages[imageIndex];
-
-  switch (acquireResult) {
-    case vk::Result::eSuccess:
-      break;
-    case vk::Result::eSuboptimalKHR:
-      rebuiltSwapchain();
-      return;
-    case vk::Result::eErrorOutOfDateKHR:
-      rebuiltSwapchain();
-      return;
-    case vk::Result::eNotReady:
-    default:
-      throw std::runtime_error{"Failed to acquire next image"};
-      break;
+  if (imageIndex == -1) {
+    gpu.rebuiltSwapchain();
+    return;
   }
 
-  if (d.resetFences(1, &fence) != vk::Result::eSuccess) {
-    throw std::runtime_error{"Failed to reset fence"};
-  };
+  vk::ImageView swapImageView = gpu.swapchainImageViews[imageIndex];
+  vk::Image swapImage = gpu.swapchainImages[imageIndex];
 
-  commandBuffer.reset();
+  gpu.resetFence();
 
-  vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo{}.setFlags(
-      vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-
-  commandBuffer.begin(beginInfo);
-
-  vk::ClearValue clearValue = vk::ClearValue{}.setColor(
-      vk::ClearColorValue{}.setFloat32({0.0, 0.0, 0.0, 0.0}));
-
-  vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
-      vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
-
-  vk::RenderingAttachmentInfo depthAttachment =
-      vk::RenderingAttachmentInfo{}
-          .setImageView(depthImage.view)
-          .setResolveMode(vk::ResolveModeFlagBits::eNone)
-          .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-          .setLoadOp(vk::AttachmentLoadOp::eClear)
-          .setStoreOp(vk::AttachmentStoreOp::eNone)
-          .setClearValue(depthClearValue);
-
-  vk::RenderingAttachmentInfo attachment =
-      vk::RenderingAttachmentInfo{}
-          .setImageView(swapImageView)
-          .setResolveMode(vk::ResolveModeFlagBits::eNone)
-          .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-          .setLoadOp(vk::AttachmentLoadOp::eClear)
-          .setStoreOp(vk::AttachmentStoreOp::eStore)
-          .setClearValue(clearValue);
-
-  vk::RenderingInfo renderingInfo = vk::RenderingInfo{}
-                                        .setRenderArea(scissors)
-                                        .setLayerCount(1)
-                                        .setViewMask(0)
-                                        .setColorAttachmentCount(1)
-                                        .setColorAttachments(attachment)
-                                        .setPDepthAttachment(&depthAttachment);
-
-  vk::ImageSubresourceRange depthSubresourceRange =
-      vk::ImageSubresourceRange{}
-          .setLayerCount(1)
-          .setAspectMask(vk::ImageAspectFlagBits::eDepth)
-          .setBaseMipLevel(0)
-          .setLevelCount(1)
-          .setBaseArrayLayer(0);
-
-  vk::ImageSubresourceRange subresourceRange =
-      vk::ImageSubresourceRange{}
-          .setLayerCount(1)
-          .setAspectMask(vk::ImageAspectFlagBits::eColor)
-          .setBaseMipLevel(0)
-          .setLevelCount(1)
-          .setBaseArrayLayer(0);
-
-  vk::ImageMemoryBarrier2 depthMemoryBarrier =
-      vk::ImageMemoryBarrier2{}
-          .setImage(depthImage.image)
-          .setOldLayout(vk::ImageLayout::eUndefined)
-          .setNewLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-          .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-          .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead |
-                            vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-          .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                           vk::PipelineStageFlagBits2::eLateFragmentTests)
-          .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                           vk::PipelineStageFlagBits2::eLateFragmentTests)
-          .setSubresourceRange(depthSubresourceRange);
-
-  vk::ImageMemoryBarrier2 imageMemoryBarrier =
-      vk::ImageMemoryBarrier2{}
-          .setImage(swapImage)
-          .setOldLayout(vk::ImageLayout::eUndefined)
-          .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-          .setSrcAccessMask(vk::AccessFlagBits2::eNone)
-          .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-          .setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-          .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-          .setSubresourceRange(subresourceRange);
-
-  vk::ImageMemoryBarrier2 presentImageMemoryBarrier =
-      vk::ImageMemoryBarrier2{}
-          .setImage(swapImage)
-          .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-          .setNewLayout(vk::ImageLayout::ePresentSrcKHR)
-          .setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-          .setDstAccessMask(vk::AccessFlagBits2::eNone)
-          .setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-          .setDstStageMask(vk::PipelineStageFlagBits2::eBottomOfPipe)
-          .setSubresourceRange(subresourceRange);
-
-  vk::ImageMemoryBarrier2 imageMemoryBarriers[3] = {
-      depthMemoryBarrier, imageMemoryBarrier, presentImageMemoryBarrier};
-
-  vk::DependencyInfo dependencyInfo =
-      vk::DependencyInfo{}
-          .setImageMemoryBarriers(imageMemoryBarriers)
-          .setImageMemoryBarrierCount(3);
-
-  commandBuffer.pipelineBarrier2(dependencyInfo);
-
-  commandBuffer.beginRendering(renderingInfo);
-
-  commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                             pipeline.graphicsPipeline);
-
-  commandBuffer.setViewport(0, 1, &viewport);
-  commandBuffer.setScissor(0, 1, &scissors);
+  gpu.beginRendering(static_cast<uint32_t>(imageIndex));
 
   std::vector<vk::DeviceSize> offsets = {0};
 
-  scene.projection.properties.view = glm::lookAt(
-      scene.camera.position, scene.camera.position + scene.camera.front, scene.camera.up);
+  projection.view =
+      glm::lookAt(camera.position, camera.position + camera.front, camera.up);
 
-  scene.projection.properties.camera = scene.camera.position;
+  FrameData frameData{};
+  frameData.model = projection.model;
+  frameData.view = projection.view;
+  frameData.perspective = projection.perspective;
+  frameData.spotLights = spotLights.size();
+  frameData.pointLights = pointLights.size();
+  frameData.cameraPos = camera.position;
 
-  PointLight& pointLight = scene.pointLights[0];
-  Entity& pointLightEntity = scene.entities[1];
-  
-  double n = SDL_GetTicks() / (1000.0f);
-  float x = 5.0f * glm::cos(n);
-  float z = 6.0f * glm::sin(n);
+  drawSkybox(frameData);
 
-  pointLight.properties.position = glm::vec3{x, 0.0f, z};
-  pointLightEntity.properties.matrix = glm::scale(glm::translate(glm::mat4{1.0f}, pointLight.properties.position), glm::vec3{0.3f});
+  gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                 pipeline.pipeline);
 
-  vmaCopyMemoryToAllocation(allocator, &pointLight.properties, pointLight.uniform.allocation, 0, sizeof(PointLightProperties));
-  vmaCopyMemoryToAllocation(allocator, &pointLightEntity.properties, pointLightEntity.uniform.allocation, 0, sizeof(EntityProperties));
 
-  vmaCopyMemoryToAllocation(allocator, &scene.projection.properties,
-                            scene.projection.uniform.allocation, 0,
-                            sizeof(ProjectionProperties));
+  gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
+  gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
+
+  gpu.commandBuffer.pushConstants(
+      pipeline.layout,
+      vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
+      sizeof(FrameData), &frameData);
 
   std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
       vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                    vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
-          .setAddress(scene.texturesDescriptor.address.deviceAddress),
+          .setUsage(vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
+                    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(texturesDescriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(scene.projection.descriptor.address.deviceAddress),
+          .setAddress(materialsDescriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(scene.lightsDescriptor.address.deviceAddress),
+          .setAddress(lightsDescriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(scene.materialsDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(scene.entitiesDescriptor.address.deviceAddress)};
+          .setAddress(entitiesDescriptor.address.deviceAddress)};
 
-  commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, dld);
+  gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
 
-  for (size_t i = 0; i < scene.entities.size(); i++) {
-    const Entity& entity = scene.entities[i];
-    const Mesh& mesh = scene.meshes[entity.meshIdx];
+  for (size_t i = 0; i < entities.size(); i++) {
+    Entity& entity = entities[i];
+    Asset& asset = assets[entity.assetIdx];
+    for (const uint32_t meshIdx : asset.meshes) {
+      Mesh& mesh = meshes[meshIdx];
 
-    std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
+      gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
+                                          offsets.data());
 
-    std::vector<vk::DeviceSize> descriptorOffsets{
-        scene.texturesDescriptor.size * entity.textureIdx, 0, 0,
-        scene.materialsDescriptor.size * entity.materialIdx,
-        scene.entitiesDescriptor.size * i};
+      gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                        vk::IndexType::eUint32);
 
-    commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, 5,
-        descriptorIndices.data(), descriptorOffsets.data(), dld);
+      std::vector<uint32_t> descriptorIndices{0, 1, 2, 3};
 
-    commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
-                                    offsets.data());
+      std::vector<vk::DeviceSize> descriptorOffsets{
+          texturesDescriptor.size * mesh.materialIdx,
+          materialsDescriptor.size * mesh.materialIdx,
+          0,
+          entitiesDescriptor.size * i,
+      };
 
-    commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
-                                  vk::IndexType::eUint16);
+      gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
+          vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 4,
+          descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
 
-    commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+      gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+    }
   }
 
-  commandBuffer.endRendering();
+  gpu.commandBuffer.endRendering();
 
-  commandBuffer.end();
+  gpu.commandBuffer.end();
 
   vk::Flags<vk::PipelineStageFlagBits> waitStage =
       vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
-  vk::SubmitInfo submitInfo = vk::SubmitInfo{}
-                                  .setWaitSemaphoreCount(1)
-                                  .setWaitSemaphores(presentCompleteSemaphore)
-                                  .setCommandBuffers(commandBuffer)
-                                  .setCommandBufferCount(1)
-                                  .setSignalSemaphores(renderCompleteSemaphore)
-                                  .setSignalSemaphoreCount(1)
-                                  .setWaitDstStageMask(waitStage);
+  vk::SubmitInfo submitInfo =
+      vk::SubmitInfo{}
+          .setWaitSemaphoreCount(1)
+          .setWaitSemaphores(gpu.presentCompleteSemaphore)
+          .setCommandBuffers(gpu.commandBuffer)
+          .setCommandBufferCount(1)
+          .setSignalSemaphores(gpu.renderCompleteSemaphore)
+          .setSignalSemaphoreCount(1)
+          .setWaitDstStageMask(waitStage);
 
-  vk::Result queueSubmitResult = queue.submit(1, &submitInfo, fence);
+  vk::Result queueSubmitResult = gpu.queue.submit(1, &submitInfo, gpu.fence);
 
   if (queueSubmitResult != vk::Result::eSuccess) {
     throw std::runtime_error{"Failed to submit to queue"};
   };
 
-  uint32_t imageIndices = {imageIndex};
+  uint32_t imageIndices = {static_cast<uint32_t>(imageIndex)};
 
   vk::PresentInfoKHR presentInfo =
       vk::PresentInfoKHR{}
           .setWaitSemaphoreCount(1)
-          .setWaitSemaphores(renderCompleteSemaphore)
+          .setWaitSemaphores(gpu.renderCompleteSemaphore)
           .setSwapchainCount(1)
-          .setSwapchains(swap)
+          .setSwapchains(gpu.swapchain)
           .setImageIndices(imageIndices);
 
-  vk::Result presentResult = queue.presentKHR(&presentInfo);
+  vk::Result presentResult = gpu.queue.presentKHR(&presentInfo);
 
   switch (presentResult) {
     case vk::Result::eSuccess:
       break;
     case vk::Result::eSuboptimalKHR:
-      rebuiltSwapchain();
+      gpu.rebuiltSwapchain();
       break;
     case vk::Result::eErrorOutOfDateKHR:
-      rebuiltSwapchain();
+      gpu.rebuiltSwapchain();
       break;
     case vk::Result::eNotReady:
       throw std::runtime_error{"Not ready swapchain"};
@@ -335,10 +204,51 @@ void Engine::drawFrame(float deltaTime) {
   }
 };
 
+void Engine::drawSkybox(const FrameData& frameData) {
+  gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                 skyboxPipeline.pipeline);
+
+  gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
+  gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
+
+  gpu.commandBuffer.pushConstants(
+      pipeline.layout,
+      vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
+      sizeof(FrameData), &frameData);
+
+  std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
+                    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(skyboxDescriptor.address.deviceAddress)};
+
+
+  std::array<vk::DeviceSize, 1> offsets{0};
+  std::vector<vk::DeviceSize> descriptorOffsets{0};
+  std::vector<uint32_t> descriptorIndices{0};
+
+  Mesh& mesh = meshes[0];
+
+  gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
+
+  gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
+                                      offsets.data());
+
+  gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                    vk::IndexType::eUint32);
+
+  gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
+      vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 1,
+      descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
+
+  gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+}
+
 void Engine::processInput(float deltaTime) {
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
-    if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE) {
+    if (event.type == SDL_EVENT_KEY_DOWN &&
+        event.key.scancode == SDL_SCANCODE_ESCAPE) {
       isRunning = false;
       break;
     }
@@ -349,525 +259,433 @@ void Engine::processInput(float deltaTime) {
     if (event.type == SDL_EVENT_WINDOW_RESIZED) {
       shouldBeResized = true;
     }
-    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_RIGHT) {
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+        event.button.button == SDL_BUTTON_RIGHT) {
       SDL_SetWindowRelativeMouseMode(display.window, true);
       SDL_SetWindowMouseGrab(display.window, true);
-      scene.camera.mode = CameraMode::Move;
+      camera.mode = CameraMode::Move;
     }
     if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
         event.button.button == SDL_BUTTON_RIGHT) {
       SDL_SetWindowRelativeMouseMode(display.window, false);
       SDL_SetWindowMouseGrab(display.window, false);
-      scene.camera.mode = CameraMode::Fixed;
+      camera.mode = CameraMode::Fixed;
     }
-    if (event.type == SDL_EVENT_KEY_DOWN && scene.camera.mode == CameraMode::Move) {
+    if (event.type == SDL_EVENT_KEY_DOWN && camera.mode == CameraMode::Move) {
       switch (event.key.scancode) {
         case SDL_SCANCODE_W:
-          scene.camera.position +=
-              scene.camera.front * scene.camera.velocity * deltaTime;
+          camera.position += camera.front * camera.velocity * deltaTime;
           break;
         case SDL_SCANCODE_S:
-          scene.camera.position -=
-              scene.camera.front * scene.camera.velocity * deltaTime;
+          camera.position -= camera.front * camera.velocity * deltaTime;
           break;
         case SDL_SCANCODE_A:
-          scene.camera.position -=
-              scene.camera.right * scene.camera.velocity * deltaTime;
+          camera.position -= camera.right * camera.velocity * deltaTime;
           break;
         case SDL_SCANCODE_D:
-          scene.camera.position +=
-              scene.camera.right * scene.camera.velocity * deltaTime;
+          camera.position += camera.right * camera.velocity * deltaTime;
           break;
         default:
           break;
       }
     }
     if (event.type == SDL_EVENT_MOUSE_MOTION &&
-        scene.camera.mode == CameraMode::Move) {
-      scene.camera.yaw += event.motion.xrel * scene.camera.sensitivity;
-      scene.camera.pitch += -event.motion.yrel * scene.camera.sensitivity;
-scene.camera.pitch = std::clamp(scene.camera.pitch, -90.0f, 90.0f);
+        camera.mode == CameraMode::Move) {
+      camera.yaw += event.motion.xrel * camera.sensitivity;
+      camera.pitch += -event.motion.yrel * camera.sensitivity;
+      camera.pitch = std::clamp(camera.pitch, -89.0f, 89.0f);
 
       glm::vec3 front{0.0f};
 
-      front.x = glm::cos(glm::radians(scene.camera.yaw)) *
-                glm::cos(glm::radians(scene.camera.pitch));
-      front.y = glm::sin(glm::radians(scene.camera.pitch));
-      front.z = glm::sin(glm::radians(scene.camera.yaw)) *
-                glm::cos(glm::radians(scene.camera.pitch));
+      front.x = glm::cos(glm::radians(camera.yaw)) *
+                glm::cos(glm::radians(camera.pitch));
+      front.y = glm::sin(glm::radians(camera.pitch));
+      front.z = glm::sin(glm::radians(camera.yaw)) *
+                glm::cos(glm::radians(camera.pitch));
 
-      scene.camera.front = glm::normalize(front);
-      scene.camera.right =
-          glm::normalize(glm::cross(scene.camera.front, scene.camera.up));
+      camera.front = glm::normalize(front);
+      camera.right = glm::normalize(glm::cross(camera.front, camera.up));
     }
   }
 };
 
 void Engine::destroy() {
-  vk::Device d = device.device;
+  gpu.device.waitIdle();
 
-  d.waitIdle();
+  gpu.destroyDescriptor(lightsDescriptor);
+  gpu.destroyDescriptor(materialsDescriptor);
+  gpu.destroyDescriptor(entitiesDescriptor);
+  gpu.destroyDescriptor(texturesDescriptor);
+  gpu.destroyDescriptor(skyboxDescriptor);
 
-  d.destroyFence(fence);
-  d.destroySemaphore(renderCompleteSemaphore);
-  d.destroySemaphore(presentCompleteSemaphore);
-
-  for (Texture& texture : scene.textures) {
-    texture.destroy(allocator, d);
+  for (Texture& texture : textures) {
+    gpu.destroyImage(texture.image);
   }
 
-  for (Mesh& mesh : scene.meshes) {
-    mesh.destroy(allocator);
+  gpu.destroyImage(skybox);
+
+  for (Mesh& mesh : meshes) {
+    gpu.destroyBuffer(mesh.vertexBuffer);
+    gpu.destroyBuffer(mesh.indexBuffer);
   }
 
-  pipeline.destroy(d);
-
-  destroySwapchainResources();
-
-  d.destroySampler(textureSampler);
-  d.destroySampler(diffuseSampler);
-  d.destroySampler(specularSampler);
-
-  d.destroyCommandPool(commandPool);
-
-  d.destroyDescriptorSetLayout(uniformLayout);
-  d.destroyDescriptorSetLayout(imageSamplerLayout);
-  d.destroyDescriptorSetLayout(lightLayout);
-
-  scene.destroy(allocator);
-
-  vkb::destroy_swapchain(swapchain);
-  vkb::destroy_surface(instance, surface);
-
-  vmaDestroyAllocator(allocator);
-
-  vkb::destroy_device(device);
-  vkb::destroy_instance(instance);
-};
-
-void Engine::createInstance() {
-  vkb::Result<vkb::Instance> instanceResult =
-      vkb::InstanceBuilder{}
-          .set_app_name("VkRenderer")
-          .require_api_version(1, 3)
-          .enable_extensions(display.vulkanExtensions)
-          .enable_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
-          .enable_validation_layers(true)
-          .use_default_debug_messenger()
-          .build();
-
-  if (!instanceResult) {
-    throw std::runtime_error{"Failed to create instance: " +
-                             instanceResult.error().message()};
+  for (PointLight& l : pointLights) {
+    gpu.destroyBuffer(l.uniform);
   }
 
-  instance = instanceResult.value();
-  dld.init(instance.instance, instance.fp_vkGetInstanceProcAddr);
-};
-
-void Engine::pickPhysicalDevice() {
-  surface = display.createVulkanSurface(instance.instance);
-
-  std::vector<const char*> extensions = {
-      vk::EXTDescriptorBufferExtensionName,
-  };
-
-  vkb::Result<vkb::PhysicalDevice> physicalDeviceResult =
-      vkb::PhysicalDeviceSelector{instance}
-          .set_surface(surface)
-          .set_minimum_version(1, 3)
-          .require_present(true)
-          .add_required_extensions(extensions)
-          .add_required_extension_features(
-              vk::PhysicalDeviceDynamicRenderingFeatures{}.setDynamicRendering(
-                  1))
-          .add_required_extension_features(
-              vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(
-                  1))
-          .add_required_extension_features(
-              vk::PhysicalDeviceDescriptorBufferFeaturesEXT{}
-                  .setDescriptorBuffer(1))
-          .add_required_extension_features(
-              vk::PhysicalDeviceBufferDeviceAddressFeatures{}
-                  .setBufferDeviceAddress(1))
-          .select();
-
-  if (!physicalDeviceResult) {
-    throw std::runtime_error{"Failed to select physical device: " +
-                             physicalDeviceResult.error().message()};
+  for (SpotLight& l : spotLights) {
+    gpu.destroyBuffer(l.uniform);
   }
 
-  physicalDevice = physicalDeviceResult.value();
-  physicalDeviceProperties.pNext = &descriptorBufferProperties;
-
-  vk::PhysicalDevice pd = vk::PhysicalDevice{physicalDevice};
-
-  pd.getProperties2(&physicalDeviceProperties);
-
-  capabilities = pd.getSurfaceCapabilitiesKHR(physicalDevice.surface);
-};
-
-void Engine::pickDevice() {
-  vkb::Result<vkb::Device> deviceResult =
-      vkb::DeviceBuilder{physicalDevice}.build();
-
-  if (!deviceResult) {
-    throw std::runtime_error{"Failed to create a device: " +
-                             deviceResult.error().message()};
+  for (Material& m : materials) {
+    gpu.destroyBuffer(m.uniform);
   }
 
-  device = deviceResult.value();
-};
-
-void Engine::createAllocator() {
-  VmaVulkanFunctions vulkanFunctions{};
-  vulkanFunctions.vkGetDeviceProcAddr = instance.fp_vkGetDeviceProcAddr;
-  vulkanFunctions.vkGetInstanceProcAddr = instance.fp_vkGetInstanceProcAddr;
-
-  VmaAllocatorCreateInfo createInfo{};
-  createInfo.pVulkanFunctions = &vulkanFunctions;
-  createInfo.instance = instance.instance;
-  createInfo.physicalDevice = physicalDevice.physical_device;
-  createInfo.device = device.device;
-  createInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-
-  if (vmaCreateAllocator(&createInfo, &allocator) != VK_SUCCESS) {
-    throw std::runtime_error{"Failed to create a VmaAllocator"};
-  };
-};
-
-void Engine::createSwapchain() {
-  int32_t w, h;
-  SDL_GetWindowSize(display.window, &w, &h);
-
-  vk::Extent2D extent = vk::Extent2D{}.setWidth(w).setHeight(h);
-
-  swapchain = utils::createSwapchain(device, extent, capabilities.minImageCount,
-                                     &swapchain);
-
-  vkb::Result<std::vector<VkImageView>> imageViewsResult =
-      swapchain.get_image_views();
-  vkb::Result<std::vector<VkImage>> imagesResult = swapchain.get_images();
-
-  if (!imageViewsResult) {
-    throw std::runtime_error{"Failed to get image views from swapchain"};
+  for (Entity& e : entities) {
+    gpu.destroyBuffer(e.uniform);
   }
 
-  if (!imagesResult) {
-    throw std::runtime_error{"Failed to get imags from swapchain"};
-  }
+  gpu.destroyBuffer(directionalLight.uniform);
 
-  swapchainImageViews = imageViewsResult.value();
-  swapchainImages = imagesResult.value();
-}
+  gpu.destroyPipeline(pipeline);
+  gpu.destroyPipeline(skyboxPipeline);
 
-void Engine::createDepthImage() {
-  depthImage = Image{allocator,
-                     device.device,
-                     vk::Extent3D{swapchain.extent}.setDepth(1),
-                     vk::Format::eD32Sfloat,
-                     vk::ImageUsageFlagBits::eDepthStencilAttachment,
-                     vk::ImageAspectFlagBits::eDepth};
-}
+  gpu.destroySwapchainResources();
 
-void Engine::createViewportAndScissors() {
-  vk::Extent3D extent = vk::Extent3D{}
-                            .setDepth(0)
-                            .setHeight(swapchain.extent.height)
-                            .setWidth(swapchain.extent.width);
-
-  auto [v, s] = utils::createViewportAndScissors(extent);
-
-  viewport = v;
-  scissors = s;
-};
-
-void Engine::createQueue() {
-  vkb::Result<uint32_t> queueIndexResult =
-      device.get_queue_index(vkb::QueueType::graphics);
-
-  if (!queueIndexResult) {
-    throw std::runtime_error{"Failed to get a queue index" +
-                             queueIndexResult.error().message()};
-  }
-
-  vkb::Result<VkQueue> queueResult = device.get_queue(vkb::QueueType::graphics);
-
-  if (!queueResult) {
-    throw std::runtime_error{"Failed to get a queue" +
-                             queueResult.error().message()};
-  }
-
-  queue = queueResult.value();
-  queueIndex = queueIndexResult.value();
-};
-
-void Engine::createSyncPrimitives() {
-  vk::Device d = device.device;
-
-  fence = d.createFence(
-      vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
-  renderCompleteSemaphore = d.createSemaphore(vk::SemaphoreCreateInfo{});
-  presentCompleteSemaphore = d.createSemaphore(vk::SemaphoreCreateInfo{});
-};
-
-void Engine::createCommandPool() {
-  vk::CommandPoolCreateInfo commandPoolCreateInfo =
-      vk::CommandPoolCreateInfo{}
-          .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
-          .setQueueFamilyIndex(queueIndex);
-
-  vk::Device d = device.device;
-
-  commandPool = d.createCommandPool(commandPoolCreateInfo, nullptr);
-};
-
-void Engine::createCommandBuffer() {
-  vk::Device d = device.device;
-
-  vk::CommandBufferAllocateInfo commandBufferAllocateInfo =
-      vk::CommandBufferAllocateInfo{}
-          .setCommandPool(commandPool)
-          .setCommandBufferCount(1)
-          .setLevel(vk::CommandBufferLevel::ePrimary);
-
-  if (d.allocateCommandBuffers(&commandBufferAllocateInfo, &commandBuffer) !=
-      vk::Result::eSuccess) {
-    throw std::runtime_error{"Failed to allocate a command buffer"};
-  };
+  gpu.destroy();
+  display.destroy();
 };
 
 void Engine::createPipeline() {
-  vk::Device d = vk::Device{device};
-
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      imageSamplerLayout, uniformLayout, lightLayout,
-      uniformLayout,      uniformLayout,
+      gpu.textureLayout,
+      gpu.uniformLayout,
+      gpu.lightLayout,
+      gpu.uniformLayout,
   };
 
-  pipeline = Pipeline{Shader{d, "./shaders/shader.vert.glsl.spv"},
-                      Shader{d, "./shaders/shader.frag.glsl.spv"},
-                      vk::Device{device},
-                      viewport,
-                      scissors,
-                      descriptorSetLayouts};
+  pipeline =
+      gpu.createPipeline(gpu.loadShader("./shaders/shader.vert.glsl.spv",
+                                        vk::ShaderStageFlagBits::eVertex),
+                         gpu.loadShader("./shaders/shader.frag.glsl.spv",
+                                        vk::ShaderStageFlagBits::eFragment),
+                         descriptorSetLayouts);
+
+  descriptorSetLayouts = {
+      gpu.skyboxLayout,
+  };
+
+  skyboxPipeline = 
+      gpu.createPipeline(gpu.loadShader("./shaders/cubemap.vert.glsl.spv",
+                                        vk::ShaderStageFlagBits::eVertex),
+                         gpu.loadShader("./shaders/cubemap.frag.glsl.spv",
+                                        vk::ShaderStageFlagBits::eFragment),
+                         descriptorSetLayouts);
 };
 
-void Engine::createSampler() {
-  vk::SamplerCreateInfo samplerCreateInfo =
-      vk::SamplerCreateInfo{}
-          .setMagFilter(vk::Filter::eLinear)
-          .setMinFilter(vk::Filter::eLinear)
-          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-          .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-          .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-          .setAddressModeW(vk::SamplerAddressMode::eRepeat)
-          .setAnisotropyEnable(0)
-          .setCompareEnable(0);
+Image Engine::loadImage(const std::filesystem::path& path) {
+  int height, width;
+  uint8_t* data =
+      stbi_load(path.c_str(), &width, &height, nullptr, STBI_rgb_alpha);
 
-  textureSampler = vk::Device{device}.createSampler(samplerCreateInfo);
-  diffuseSampler = vk::Device{device}.createSampler(samplerCreateInfo);
-  specularSampler = vk::Device{device}.createSampler(samplerCreateInfo);
+  assert(data != nullptr);
+
+  Image texture = gpu.createTexture2D(
+      data, vk::Extent2D{}.setWidth(width).setHeight(height));
+  stbi_image_free(data);
+  return texture;
 }
 
-void Engine::createDescriptorSetLayouts() {
-  vk::Device d = vk::Device{device};
+void Engine::loadConfig(const EngineConfig& config) {
+  std::vector<glm::vec3> lightPositions{};
 
-  vk::DescriptorSetLayoutBinding imageSamplerBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-          .setImmutableSamplers(textureSampler);
+  projection = config.projection;
 
-  vk::DescriptorSetLayoutBinding diffuseMapBidning =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}
-          .setBinding(1)
-          .setImmutableSamplers(diffuseSampler);
+  lightsDescriptor = gpu.createUniformDescriptor(
+      config.spotLights.size() + pointLights.size() + 1, gpu.lightLayout);
 
-  vk::DescriptorSetLayoutBinding specularMapBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}
-          .setBinding(2)
-          .setImmutableSamplers(specularSampler);
+  directionalLight = config.directionalLight;
+  lightPositions.push_back(config.directionalLight.position);
 
-  std::vector<vk::DescriptorSetLayoutBinding> imageSamplerBindings{
-      imageSamplerBinding, diffuseMapBidning, specularMapBinding};
+  directionalLight.uniform =
+      gpu.createBuffer(&directionalLight, offsetof(DirectionalLight, uniform),
+                       vk::BufferUsageFlagBits::eUniformBuffer |
+                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  vk::DescriptorSetLayoutCreateInfo imageSamplerSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(imageSamplerBindings)
-          .setBindingCount(imageSamplerBindings.size())
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
+  gpu.setDescriptorUniformBuffer(lightsDescriptor, directionalLight.uniform, 0,
+                                 0);
 
-  vk::DescriptorSetLayoutBinding uniformBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-  
-  std::vector<vk::DescriptorSetLayoutBinding> lightBindings = {
-    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(0),
-    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(1),
-    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(2).setDescriptorCount(8),
-    vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(3).setDescriptorCount(8),
-  };
+  for (size_t i = 0; i < config.pointLights.size(); i++) {
+    PointLight light = config.pointLights[i];
+    lightPositions.push_back(light.position);
 
-  vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo = vk::DescriptorSetLayoutCreateInfo{}
-      .setBindings(lightBindings)
-      .setBindingCount(lightBindings.size())
-      .setFlags(
-          vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
+    light.uniform =
+        gpu.createBuffer(&light, offsetof(PointLight, uniform),
+                         vk::BufferUsageFlagBits::eUniformBuffer |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  vk::DescriptorSetLayoutCreateInfo uniformSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(uniformBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
+    gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 1);
 
-  imageSamplerLayout =
-      d.createDescriptorSetLayout(imageSamplerSetLayoutCreateInfo, nullptr);
-
-  uniformLayout =
-      d.createDescriptorSetLayout(uniformSetLayoutCreateInfo, nullptr);
-
-  lightLayout =
-      d.createDescriptorSetLayout(lightSetLayoutCreateInfo, nullptr);
-}
-
-void Engine::loadMesh(const std::string& path) {
-  scene.meshes.push_back(Mesh{allocator, path});
-}
-
-Image Engine::loadImage(const std::string& path) {
-  vk::Device d{device};
-
-  Image image{allocator,   vk::Device{device},
-              commandPool, queue,
-              path,        vk::ImageLayout::eShaderReadOnlyOptimal};
-
-  return image;
-}
-
-void Engine::loadScene(const EngineState& state) {
-  vk::Device d = vk::Device{device};
-
-  scene.projection.properties = state.projection;
-  scene.projection.uniform = Buffer{
-      allocator, &scene.projection.properties, sizeof(ProjectionProperties),
-      vk::BufferUsageFlagBits::eUniformBuffer |
-          vk::BufferUsageFlagBits::eShaderDeviceAddress};
-  scene.projection.descriptor = Descriptor::createUniformDescriptor(
-      1, uniformLayout, d, allocator, dld, descriptorBufferProperties);
-  scene.projection.descriptor.setUniformBuffer(
-      scene.projection.uniform, 0, 0, d, dld, descriptorBufferProperties);
-
-  scene.lightsDescriptor = Descriptor::createUniformDescriptor(1, lightLayout, d, allocator, dld, descriptorBufferProperties);
-
-  scene.light.properties = {static_cast<uint32_t>(state.pointLights.size()), static_cast<uint32_t>(state.spotLights.size())};
-  scene.light.uniform =
-      Buffer{allocator, &scene.light.properties, sizeof(SceneLightProperties),
-             vk::BufferUsageFlagBits::eUniformBuffer |
-                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
-
-  scene.lightsDescriptor.setUniformBuffer(scene.light.uniform, 0, 0, d, dld,
-                                          descriptorBufferProperties);
-
-  scene.directionalLight.properties = state.directionalLight;
-
-  scene.directionalLight.uniform =
-      Buffer{allocator, &scene.directionalLight.properties, sizeof(DirectionalLightProperties),
-             vk::BufferUsageFlagBits::eUniformBuffer |
-                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
-
-  scene.lightsDescriptor.setUniformBuffer(scene.directionalLight.uniform, 0, 1, d, dld,
-                                          descriptorBufferProperties);
-
-  for (size_t i = 0; i < state.pointLights.size(); i++) {
-    const PointLightProperties& point = state.pointLights[i];
-    PointLight light{};
-    light.properties = point;
-    light.uniform = Buffer{allocator, &point, sizeof(PointLightProperties),
-             vk::BufferUsageFlagBits::eUniformBuffer |
-                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
-
-    scene.lightsDescriptor.setUniformBuffer(light.uniform, i, 2, d, dld,
-                                            descriptorBufferProperties);
-
-    scene.pointLights.push_back(light);
+    pointLights.push_back(light);
   }
 
-  for (size_t i = 0; i < state.spotLights.size(); i++) {
-    const SpotLightProperties& spot = state.spotLights[i];
-    SpotLight light{};
-    light.properties = spot;
-    light.uniform = Buffer{allocator, &spot, sizeof(SpotLightProperties),
-             vk::BufferUsageFlagBits::eUniformBuffer |
-                 vk::BufferUsageFlagBits::eShaderDeviceAddress};
+  for (size_t i = 0; i < config.spotLights.size(); i++) {
+    SpotLight light = config.spotLights[i];
+    lightPositions.push_back(light.position);
 
-    scene.lightsDescriptor.setUniformBuffer(light.uniform, i, 3, d, dld,
-                                            descriptorBufferProperties);
+    light.uniform =
+        gpu.createBuffer(&light, offsetof(SpotLight, uniform),
+                         vk::BufferUsageFlagBits::eUniformBuffer |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    scene.spotLights.push_back(light);
+    gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 2);
+
+    spotLights.push_back(light);
   }
 
-  for (const std::string& mesh : state.meshes) {
-    loadMesh(mesh);
+  for (const std::filesystem::path& path : config.assets) {
+    loadAsset(path);
   }
 
-  scene.texturesDescriptor = Descriptor::createTextureDescriptor(
-      state.textures.size(), imageSamplerLayout, d, allocator, dld,
-      descriptorBufferProperties);
-
-  for (size_t i = 0; i < state.textures.size(); i++) {
-    Texture texture{};
-
-    texture.image = loadImage(state.textures[i].texture);
-    texture.diffuseMap = loadImage(state.textures[i].diffuseMap);
-    texture.specularMap = loadImage(state.textures[i].specularMap);
-
-    scene.texturesDescriptor.setImage(texture.image, textureSampler, i, 0, d,
-                                      dld, descriptorBufferProperties);
-    scene.texturesDescriptor.setImage(texture.diffuseMap, diffuseSampler, i, 1,
-                                      d, dld, descriptorBufferProperties);
-    scene.texturesDescriptor.setImage(texture.specularMap, specularSampler, i,
-                                      2, d, dld, descriptorBufferProperties);
-
-    scene.textures.push_back(texture);
+  for (size_t i = 0; i < lightPositions.size(); i++) {
+    Entity entity{};
+    entity.matrix = glm::scale(glm::translate(glm::mat4{1.0f}, lightPositions[i]), glm::vec3{1.0});
+    entity.assetIdx = 0;
+    entities.push_back(entity);
   }
 
-  scene.materialsDescriptor = Descriptor::createUniformDescriptor(
-      state.materials.size(), uniformLayout, d, allocator, dld,
-      descriptorBufferProperties);
+  for (size_t i = 0; i < config.entities.size(); i++) {
+    entities.push_back(config.entities[i]);
+  }
 
-  for (size_t i = 0; i < state.materials.size(); i++) {
-    const MaterialProperties& properties = state.materials[i];
-    Material material{};
-    material.properties = properties;
+  entitiesDescriptor =
+      gpu.createUniformDescriptor(entities.size(), gpu.uniformLayout);
+
+  for (size_t i = 0; i < entities.size(); i++) {
+    Entity& entity = entities[i];
+    entity.uniform = gpu.createBuffer(&entity, sizeof(glm::mat4),
+                         vk::BufferUsageFlagBits::eUniformBuffer |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
+    gpu.setDescriptorUniformBuffer(entitiesDescriptor, entity.uniform, i, 0);
+  }
+
+  materialsDescriptor =
+      gpu.createUniformDescriptor(materials.size(), gpu.uniformLayout);
+
+  texturesDescriptor =
+      gpu.createTextureDescriptor(materials.size(), gpu.textureLayout);
+
+  for (size_t i = 0; i < materials.size(); i++) {
+    Material& material = materials[i];
+
     material.uniform =
-        Buffer{allocator, &material.properties, sizeof(MaterialProperties),
-               vk::BufferUsageFlagBits::eUniformBuffer |
-                   vk::BufferUsageFlagBits::eShaderDeviceAddress};
-    scene.materialsDescriptor.setUniformBuffer(material.uniform, i, 0, d, dld,
-                                               descriptorBufferProperties);
-    scene.materials.push_back(material);
+        gpu.createBuffer(&material, offsetof(Material, uniform),
+                         vk::BufferUsageFlagBits::eUniformBuffer |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
+    gpu.setDescriptorUniformBuffer(materialsDescriptor, material.uniform, i, 0);
+
+    Texture& diffuseMap = textures[material.diffuseTextureIdx];
+    Texture& specularMap = textures[material.specularTextureIdx];
+
+    gpu.setDescriptorImage(texturesDescriptor, diffuseMap.image,
+                           gpu.diffuseSampler, i, 0);
+
+    gpu.setDescriptorImage(texturesDescriptor, specularMap.image,
+                           gpu.specularSampler, i, 1);
+  }
+}
+
+void Engine::loadStatic() {
+  Texture texture{};
+  texture.image = loadImage("./textures/default.png");
+  texture.path = "./textures/default.png";
+  texture.type = TextureType::BaseColor;
+
+  textures.push_back(texture);
+
+  Material defaultMaterial{};
+  defaultMaterial.emissive = glm::vec3{0.0f};
+  defaultMaterial.specular = glm::vec3{1.0f};
+  defaultMaterial.shininess = 32.0;
+  defaultMaterial.color = glm::vec3{0.5f};
+
+  Material lightMaterial{};
+  lightMaterial.emissive = glm::vec3{1.0f};
+  lightMaterial.color = glm::vec3{1.0f};
+  lightMaterial.specular = glm::vec3{1.0f};
+  lightMaterial.shininess = 32.0;
+
+  materials.push_back(defaultMaterial);
+  materials.push_back(lightMaterial);
+
+  loadAsset("./assets/cube.obj");
+};
+
+void Engine::loadAsset(const std::filesystem::path& path) {
+  Assimp::Importer importer{};
+
+  const aiScene* scene = importer.ReadFile(path.c_str(), aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_OptimizeMeshes);
+
+  Asset asset{};
+  asset.path = path;
+
+  if (!scene) {
+    throw std::runtime_error{std::string{"Failed to read asset file: "} +
+                             importer.GetErrorString()};
   }
 
-  scene.entitiesDescriptor = Descriptor::createUniformDescriptor(
-      state.entities.size(), uniformLayout, d, allocator, dld,
-      descriptorBufferProperties);
+  processNode(asset, scene, scene->mRootNode);
 
-  for (size_t i = 0; i < state.entities.size(); i++) {
-    Entity entity = state.entities[i];
-    entity.uniform =
-        Buffer{allocator, &entity.properties, sizeof(EntityProperties),
-               vk::BufferUsageFlagBits::eUniformBuffer |
-                   vk::BufferUsageFlagBits::eShaderDeviceAddress};
-    scene.entitiesDescriptor.setUniformBuffer(entity.uniform, i, 0, d, dld,
-                                              descriptorBufferProperties);
-    scene.entities.push_back(entity);
+  importer.FreeScene();
+  assets.push_back(asset);
+}
+
+void Engine::loadMesh(Asset& asset, const aiScene* scene, const aiMesh* assimpMesh) {
+  Mesh mesh{};
+
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
+
+  for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
+    Vertex vertex{};
+
+    vertex.position[0] = assimpMesh->mVertices[j].x;
+    vertex.position[1] = assimpMesh->mVertices[j].y;
+    vertex.position[2] = assimpMesh->mVertices[j].z;
+
+    vertex.normals[0] = assimpMesh->mNormals[j].x;
+    vertex.normals[1] = assimpMesh->mNormals[j].y;
+    vertex.normals[2] = assimpMesh->mNormals[j].z;
+
+    vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
+    vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
+
+    if (assimpMesh->HasVertexColors(0)) {
+      vertex.clr[0] = assimpMesh->mColors[0][j].r;
+      vertex.clr[1] = assimpMesh->mColors[0][j].g;
+      vertex.clr[2] = assimpMesh->mColors[0][j].b;
+    } else {
+      vertex.clr[0] = 1.0f;
+      vertex.clr[1] = 1.0f;
+      vertex.clr[2] = 1.0f;
+    }
+
+    vertices.push_back(vertex);
   }
+
+  for (size_t j = 0; j < assimpMesh->mNumFaces; j++) {
+    assert(assimpMesh->mFaces[j].mNumIndices == 3);
+    indices.push_back(assimpMesh->mFaces[j].mIndices[0]);
+    indices.push_back(assimpMesh->mFaces[j].mIndices[1]);
+    indices.push_back(assimpMesh->mFaces[j].mIndices[2]);
+  }
+
+  mesh.vertexBuffer = gpu.createBuffer(
+      vertices.data(),
+      sizeof(Vertex) * vertices.size(),
+      vk::BufferUsageFlagBits::eVertexBuffer);
+
+  mesh.indexBuffer = gpu.createBuffer(
+      indices.data(),
+      sizeof(uint32_t) * indices.size(),
+      vk::BufferUsageFlagBits::eIndexBuffer);
+
+  mesh.indicesCount = indices.size();
+
+  if (assimpMesh->mMaterialIndex >= 0) {
+    loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex]);
+  }
+  
+  asset.meshes.push_back(meshes.size());
+  meshes.push_back(mesh);
+}
+
+void Engine::loadMaterial(Asset& asset, Mesh& mesh, const aiMaterial* assimpMaterial) {
+    Material material{};
+
+    aiColor3D emissiveColor{0.0, 0.0, 0.0};
+    if (assimpMaterial->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColor) ==
+        aiReturn_SUCCESS) {
+      material.emissive =
+          glm::vec3{emissiveColor.r, emissiveColor.g, emissiveColor.b};
+    };
+
+    aiColor3D specularColor{1.0, 1.0, 1.0};
+    if (assimpMaterial->Get(AI_MATKEY_COLOR_SPECULAR, specularColor) ==
+        aiReturn_SUCCESS) {
+      material.specular =
+          glm::vec3{specularColor.r, specularColor.g, specularColor.b};
+    };
+
+    aiColor3D diffuseColor{1.0, 1.0, 1.0};
+    if (assimpMaterial->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) ==
+        aiReturn_SUCCESS) {
+      material.color =
+          glm::vec3{diffuseColor.r, diffuseColor.g, diffuseColor.b};
+    };
+
+    float shininess = 32.0;
+    if (assimpMaterial->Get(AI_MATKEY_SHININESS, shininess) ==
+        aiReturn_SUCCESS) {
+      material.shininess = std::clamp(shininess, 4.0f, 32.0f);
+    };
+
+    if (assimpMaterial->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
+      aiString diffuseMapPath;
+      assimpMaterial->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0, &diffuseMapPath);
+      Texture diffuseMap{};
+      diffuseMap.type = TextureType::BaseColor;
+      diffuseMap.image = loadImage(asset.path.parent_path().append(diffuseMapPath.C_Str()));
+      diffuseMap.path = asset.path.parent_path().append(diffuseMapPath.C_Str());
+      material.diffuseTextureIdx = textures.size();
+      textures.push_back(diffuseMap);
+    }
+
+    if (assimpMaterial->GetTextureCount(aiTextureType_SPECULAR) > 0) {
+      aiString specularMapPath;
+      assimpMaterial->GetTexture(aiTextureType::aiTextureType_SPECULAR, 0, &specularMapPath);
+      Texture specularMap{};
+      specularMap.type = TextureType::Specular;
+      specularMap.image = loadImage(asset.path.parent_path().append(specularMapPath.C_Str()));
+      specularMap.path = asset.path.parent_path().append(specularMapPath.C_Str());
+      material.specularTextureIdx = textures.size();
+      textures.push_back(specularMap);
+    }
+    
+    mesh.materialIdx = materials.size();
+    materials.push_back(material);
+}
+
+void Engine::processNode(Asset& asset, const aiScene* scene, const aiNode* node) {
+  for (size_t i = 0; i < node->mNumMeshes; i++) {
+    loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]]);
+  }
+
+  for (size_t i = 0; i < node->mNumChildren; i++) {
+    processNode(asset, scene, node->mChildren[i]);
+  }
+};
+
+void Engine::loadSkybox() {
+  int height, width;
+  std::array<uint8_t*, 6> images{};
+
+  for (size_t i = 0; i < 6; i++) {
+    std::string file = CUBEMAP_FILES[i];
+    uint8_t* data =
+        stbi_load(std::string{"./textures/skybox/" + file + ".png"}.c_str(), &width, &height, nullptr, STBI_rgb_alpha);
+    assert(data != nullptr);
+    images[i] = data;
+  }
+
+  Image cubemap = gpu.createCubemapTexture(images, vk::Extent2D{}.setWidth(width).setHeight(height));
+
+  for (const auto& data : images) {
+    stbi_image_free(data);
+  }
+
+  skybox = cubemap;
+  skyboxDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
+  gpu.setDescriptorImage(skyboxDescriptor, skybox, gpu.skyboxSampler, 0, 0);
 }

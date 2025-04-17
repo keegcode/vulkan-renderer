@@ -13,17 +13,18 @@ void Display::init() {
     throw std::runtime_error{std::string{"Failed to init Vulkan for SDL: "} +
                              SDL_GetError()};
   }
-  
+
   int32_t displayCount;
   SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
 
   if (!displays) {
-    throw std::runtime_error{std::string{"Failed to get a list of displays for SDL: "} +
-                             SDL_GetError()};
+    throw std::runtime_error{
+        std::string{"Failed to get a list of displays for SDL: "} +
+        SDL_GetError()};
   }
 
   const SDL_DisplayMode* displayMode = SDL_GetCurrentDisplayMode(displays[0]);
-  
+
   if (displayMode == nullptr) {
     throw std::runtime_error{std::string{"Failed to get Display Mode: "} +
                              SDL_GetError()};
@@ -32,9 +33,8 @@ void Display::init() {
   width = displayMode->w;
   height = displayMode->h;
 
-  window = SDL_CreateWindow(
-      "Vulkan", width,
-      height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+  window = SDL_CreateWindow("Vulkan", width, height,
+                            SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
   if (!window) {
     throw std::runtime_error{std::string{"Failed to create SDL window: "} +
