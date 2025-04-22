@@ -1,11 +1,22 @@
 {
   "dependencies": [
-    "glm",
+    {
+      "name": "glm",
+      "version>=": "1.0.1"
+    },
     {
       "name": "sdl3",
-      "features": [ "vulkan" ]
+      "features": [ "vulkan" ],
+      "version>=": "3.2.10"
     },
-    "vulkan",
-    "assimp"
-  ]
+    {
+      "name": "vulkan",
+      "version>=": "2023-12-17"
+    },
+    {
+      "name": "assimp",
+      "version>=": "5.4.3"
+    }
+  ],
+  "builtin-baseline": "d6995a0cf3cafda5e9e52749fad075dd62bfd90c"
 }
