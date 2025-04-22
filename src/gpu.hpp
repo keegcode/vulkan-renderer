@@ -8,7 +8,7 @@
 #include "display.hpp"
 #include "vk_mem_alloc.h"
 
-template<typename T>
+template <typename T>
 void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
   if (!vkbResult.has_value()) {
     printf("%s\n", vkbResult.error().message().c_str());
@@ -115,10 +115,6 @@ class GPU {
   vk::CommandPool commandPool;
   vk::CommandBuffer commandBuffer;
 
-  vk::Sampler diffuseSampler;
-  vk::Sampler specularSampler;
-  vk::Sampler skyboxSampler;
-
   vk::DescriptorSetLayout uniformLayout;
   vk::DescriptorSetLayout textureLayout;
   vk::DescriptorSetLayout lightLayout;
@@ -145,15 +141,16 @@ class GPU {
   void createCommandPool();
   void createCommandBuffer();
   void createDescriptorSetLayouts();
-  void createSampler();
   void createViewportAndScissors();
 
   Descriptor createStorageBufferDescriptor(
       const vk::DescriptorSetLayout& layout) const;
-  Descriptor createUniformDescriptor(const uint32_t count,
-                                     const vk::DescriptorSetLayout& layout) const;
-  Descriptor createTextureDescriptor(const uint32_t count,
-                                     const vk::DescriptorSetLayout& layout) const;
+  Descriptor createUniformDescriptor(
+      const uint32_t count,
+      const vk::DescriptorSetLayout& layout) const;
+  Descriptor createTextureDescriptor(
+      const uint32_t count,
+      const vk::DescriptorSetLayout& layout) const;
   void setDescriptorUniformBuffer(const Descriptor& descriptor,
                                   const Buffer& src,
                                   uint32_t index,
@@ -190,7 +187,8 @@ class GPU {
   vk::DeviceAddress getBufferDeviceAddress(const Buffer& buffer) const;
 
   vk::CommandBuffer beginSingleSubmitCommand() const;
-  void endSingleSubmitCommand(const vk::CommandBuffer& singleSubmitBuffer) const;
+  void endSingleSubmitCommand(
+      const vk::CommandBuffer& singleSubmitBuffer) const;
 
   Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
@@ -200,9 +198,13 @@ class GPU {
   void createMultiSampleImage();
   void generateMipmaps(const Image& image);
 
-  void addImageMemoryBarrier(vk::CommandBuffer& cmdBuffer, const ImageMemoryBarrierOptions& options);
+  vk::Sampler createSampler(const vk::SamplerCreateInfo& createInfo);
 
-  Shader loadShader(const std::string_view path, vk::ShaderStageFlagBits stage) const;
+  void addImageMemoryBarrier(vk::CommandBuffer& cmdBuffer,
+                             const ImageMemoryBarrierOptions& options);
+
+  Shader loadShader(const std::string_view path,
+                    vk::ShaderStageFlagBits stage) const;
 
   Pipeline createEntityPipeline(
       const Shader& vertexShader,
@@ -226,5 +228,6 @@ class GPU {
   void destroyDescriptor(const Descriptor& descriptor) const;
   void destroyBuffer(const Buffer& buffer) const;
   void destroyImage(const Image& image) const;
+  void destroySampler(const vk::Sampler& sampler);
   void destroy() const;
 };

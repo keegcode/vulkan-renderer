@@ -1,5 +1,6 @@
 #pragma once
 
+#include <assimp/material.h>
 #include <assimp/scene.h>
 #include <filesystem>
 #include <vulkan/vulkan.hpp>
@@ -91,12 +92,13 @@ struct Material {
 enum class TextureType {
   BaseColor,
   Specular,
+  Cube,
 };
 
 struct Texture {
   Image image;
   TextureType type;
-  std::string path;
+  vk::Sampler sampler;
 };
 
 struct Asset {
@@ -125,13 +127,24 @@ struct EngineConfig {
   std::vector<std::filesystem::path> assets;
 };
 
+enum class GLTFMagFilter { Nearest = 9728, Linear = 9729 };
+
+enum class GLTFMinFilter {
+  Nearest = 9728,
+  Linear = 9729,
+  NearestMipmapNearest = 9984,
+  LinearMipmapNearest = 9985,
+  NearestMipmapLinear = 9986,
+  LinearMipmapLinear = 9987
+};
+
 class Engine {
  public:
   Pipeline pipeline;
   Pipeline skyboxPipeline;
 
-  Image skybox;
-  Image reflectionCube;
+  Texture skybox;
+  Texture reflectionCube;
 
   Projection projection;
 
@@ -163,6 +176,7 @@ class Engine {
   void drawFrame(float deltaTime);
   void drawSkybox(const FrameData& data);
   void processInput(float deltaTime);
+  void destroyTexture(const Texture& texture);
   void destroy();
 
  private:
@@ -179,6 +193,11 @@ class Engine {
   void processNode(Asset& asset, const aiScene* scene, const aiNode* node);
   void loadMesh(Asset& asset, const aiScene* scene, const aiMesh* mesh);
   void loadMaterial(Asset& asset, Mesh& mesh, const aiMaterial* assimpMaterial);
+  vk::SamplerCreateInfo extractGLTFSampler(const aiTextureMapMode u,
+                                           const aiTextureMapMode v,
+                                           const GLTFMagFilter mag,
+                                           const GLTFMinFilter min,
+                                           const Image& image) const;
 
   Image loadImage(const std::filesystem::path& path);
   void loadSkybox();

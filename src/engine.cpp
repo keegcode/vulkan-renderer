@@ -3,6 +3,7 @@
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_timer.h>
 
+#include <assimp/GltfMaterial.h>
 #include <assimp/material.h>
 #include <assimp/mesh.h>
 #include <assimp/postprocess.h>
@@ -43,7 +44,6 @@ void Engine::init(const EngineConfig& config) {
   gpu.createSyncPrimitives();
   gpu.createCommandPool();
   gpu.createCommandBuffer();
-  gpu.createSampler();
   gpu.createDescriptorSetLayouts();
 
   loadSkybox();
@@ -88,7 +88,7 @@ void Engine::drawFrame(float deltaTime) {
 
   drawEntities(frameData);
   drawSkybox(frameData);
-  
+
   gpu.endRendering();
   gpu.submit(static_cast<uint32_t>(imageIndex));
 };
@@ -197,6 +197,11 @@ void Engine::processInput(float deltaTime) {
   }
 };
 
+void Engine::destroyTexture(const Texture& texture) {
+  gpu.destroyImage(texture.image);
+  gpu.destroySampler(texture.sampler);
+};
+
 void Engine::destroy() {
   gpu.device.waitIdle();
 
@@ -208,11 +213,11 @@ void Engine::destroy() {
   gpu.destroyDescriptor(reflectionCubeDescriptor);
 
   for (Texture& texture : textures) {
-    gpu.destroyImage(texture.image);
+    destroyTexture(texture);
   }
 
-  gpu.destroyImage(skybox);
-  gpu.destroyImage(reflectionCube);
+  destroyTexture(skybox);
+  destroyTexture(reflectionCube);
 
   for (Mesh& mesh : meshes) {
     gpu.destroyBuffer(mesh.vertexBuffer);
@@ -381,18 +386,32 @@ void Engine::loadConfig(const EngineConfig& config) {
     Texture& specularMap = textures[material.specularTextureIdx];
 
     gpu.setDescriptorImage(texturesDescriptor, diffuseMap.image,
-                           gpu.diffuseSampler, i, 0);
+                           diffuseMap.sampler, i, 0);
 
     gpu.setDescriptorImage(texturesDescriptor, specularMap.image,
-                           gpu.specularSampler, i, 1);
+                           specularMap.sampler, i, 1);
   }
 }
 
 void Engine::loadStatic() {
+  vk::SamplerCreateInfo samplerCreateInfo =
+      vk::SamplerCreateInfo{}
+          .setMagFilter(vk::Filter::eNearest)
+          .setMinFilter(vk::Filter::eNearest)
+          .setMipmapMode(vk::SamplerMipmapMode::eNearest)
+          .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+          .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+          .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+          .setAnisotropyEnable(1)
+          .setMaxAnisotropy(
+              std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
+                                  .maxSamplerAnisotropy))
+          .setCompareEnable(0);
+
   Texture texture{};
   texture.image = loadImage("./textures/default.png");
-  texture.path = "./textures/default.png";
   texture.type = TextureType::BaseColor;
+  texture.sampler = gpu.createSampler(samplerCreateInfo);
 
   textures.push_back(texture);
 
@@ -425,7 +444,6 @@ void Engine::loadAsset(const std::filesystem::path& path) {
 
   Asset asset{};
   asset.path = path;
-  
 
   processNode(asset, scene, scene->mRootNode);
 
@@ -554,10 +572,6 @@ void Engine::loadMaterial(Asset& asset,
     material.rougness = 0.8f;
   }
 
-  if (asset.path == "./assets/Sponza/glTF/Sponza.gltf") {
-    material.rougness = 0.95f;
-  }
-
   if (assimpMaterial->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
     aiString diffuseMapPath;
     assimpMaterial->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0,
@@ -566,8 +580,24 @@ void Engine::loadMaterial(Asset& asset,
     diffuseMap.type = TextureType::BaseColor;
     diffuseMap.image =
         loadImage(asset.path.parent_path().append(diffuseMapPath.C_Str()));
-    diffuseMap.path = asset.path.parent_path().append(diffuseMapPath.C_Str()).string();
     material.diffuseTextureIdx = textures.size();
+
+    aiTextureMapMode mapModeU, mapModeV;
+    GLTFMinFilter min;
+    GLTFMagFilter mag;
+
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_U(aiTextureType_BASE_COLOR, 0),
+                        mapModeU);
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_V(aiTextureType_BASE_COLOR, 0),
+                        mapModeV);
+    assimpMaterial->Get(
+        AI_MATKEY_GLTF_MAPPINGFILTER_MAG(aiTextureType_BASE_COLOR, 0), mag);
+    assimpMaterial->Get(
+        AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_BASE_COLOR, 0), min);
+
+    diffuseMap.sampler = gpu.createSampler(
+        extractGLTFSampler(mapModeU, mapModeV, mag, min, diffuseMap.image));
+
     textures.push_back(diffuseMap);
   }
 
@@ -579,8 +609,24 @@ void Engine::loadMaterial(Asset& asset,
     specularMap.type = TextureType::Specular;
     specularMap.image =
         loadImage(asset.path.parent_path().append(specularMapPath.C_Str()));
-    specularMap.path = asset.path.parent_path().append(specularMapPath.C_Str()).string();
     material.specularTextureIdx = textures.size();
+
+    aiTextureMapMode mapModeU, mapModeV;
+    GLTFMinFilter min;
+    GLTFMagFilter mag;
+
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_U(aiTextureType_BASE_COLOR, 0),
+                        mapModeU);
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_V(aiTextureType_BASE_COLOR, 0),
+                        mapModeV);
+    assimpMaterial->Get(
+        AI_MATKEY_GLTF_MAPPINGFILTER_MAG(aiTextureType_BASE_COLOR, 0), min);
+    assimpMaterial->Get(
+        AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_BASE_COLOR, 0), mag);
+
+    specularMap.sampler = gpu.createSampler(
+        extractGLTFSampler(mapModeU, mapModeV, mag, min, specularMap.image));
+
     textures.push_back(specularMap);
   }
 
@@ -620,10 +666,29 @@ void Engine::loadReflectionCube() {
     stbi_image_free(data);
   }
 
-  reflectionCube = cubemap;
+  vk::SamplerCreateInfo samplerCreateInfo =
+      vk::SamplerCreateInfo{}
+          .setMagFilter(vk::Filter::eLinear)
+          .setMinFilter(vk::Filter::eLinear)
+          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+          .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+          .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+          .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+          .setAnisotropyEnable(1)
+          .setMaxAnisotropy(
+              std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
+                                  .maxSamplerAnisotropy))
+          .setCompareEnable(0);
+
+  Texture tex{};
+  tex.image = cubemap;
+  tex.sampler = gpu.createSampler(samplerCreateInfo);
+  tex.type = TextureType::Cube;
+
+  reflectionCube = tex;
   reflectionCubeDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
-  gpu.setDescriptorImage(reflectionCubeDescriptor, reflectionCube,
-                         gpu.skyboxSampler, 0, 0);
+  gpu.setDescriptorImage(reflectionCubeDescriptor, reflectionCube.image,
+                         tex.sampler, 0, 0);
 }
 
 void Engine::loadSkybox() {
@@ -642,13 +707,32 @@ void Engine::loadSkybox() {
   Image cubemap = gpu.createCubemapTexture(
       images, vk::Extent2D{}.setWidth(width).setHeight(height));
 
+  vk::SamplerCreateInfo samplerCreateInfo =
+      vk::SamplerCreateInfo{}
+          .setMagFilter(vk::Filter::eLinear)
+          .setMinFilter(vk::Filter::eLinear)
+          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+          .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+          .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+          .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+          .setAnisotropyEnable(1)
+          .setMaxAnisotropy(
+              std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
+                                  .maxSamplerAnisotropy))
+          .setCompareEnable(0);
+
   for (const auto& data : images) {
     stbi_image_free(data);
   }
 
-  skybox = cubemap;
+  Texture tex{};
+  tex.image = cubemap;
+  tex.sampler = gpu.createSampler(samplerCreateInfo);
+  tex.type = TextureType::Cube;
+
+  skybox = tex;
   skyboxDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
-  gpu.setDescriptorImage(skyboxDescriptor, skybox, gpu.skyboxSampler, 0, 0);
+  gpu.setDescriptorImage(skyboxDescriptor, tex.image, tex.sampler, 0, 0);
 }
 
 void Engine::drawEntities(const FrameData& frameData) {
@@ -726,4 +810,94 @@ void Engine::drawEntities(const FrameData& frameData) {
       gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
     }
   }
+}
+
+vk::SamplerCreateInfo Engine::extractGLTFSampler(const aiTextureMapMode u,
+                                                 const aiTextureMapMode v,
+                                                 const GLTFMagFilter mag,
+                                                 const GLTFMinFilter min,
+                                                 const Image& image) const {
+  vk::SamplerCreateInfo samplerCreateInfo =
+      vk::SamplerCreateInfo{}
+          .setMaxLod(image.mipLevels)
+          .setMinLod(0.0f)
+          .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+          .setAnisotropyEnable(1)
+          .setMaxAnisotropy(
+              std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
+                                  .maxSamplerAnisotropy))
+          .setCompareEnable(0);
+
+  switch (mag) {
+    case GLTFMagFilter::Linear:
+      samplerCreateInfo.setMagFilter(vk::Filter::eLinear);
+      break;
+    case GLTFMagFilter::Nearest:
+      samplerCreateInfo.setMagFilter(vk::Filter::eNearest);
+      break;
+    default:
+      samplerCreateInfo.setMagFilter(vk::Filter::eLinear);
+  }
+
+  switch (min) {
+    case GLTFMinFilter::Linear:
+      samplerCreateInfo.setMinFilter(vk::Filter::eLinear);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eLinear);
+      break;
+    case GLTFMinFilter::LinearMipmapLinear:
+      samplerCreateInfo.setMinFilter(vk::Filter::eLinear);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eLinear);
+      break;
+    case GLTFMinFilter::LinearMipmapNearest:
+      samplerCreateInfo.setMinFilter(vk::Filter::eLinear);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+      break;
+    case GLTFMinFilter::Nearest:
+      samplerCreateInfo.setMinFilter(vk::Filter::eNearest);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eLinear);
+      break;
+    case GLTFMinFilter::NearestMipmapLinear:
+      samplerCreateInfo.setMinFilter(vk::Filter::eNearest);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eLinear);
+      break;
+    case GLTFMinFilter::NearestMipmapNearest:
+      samplerCreateInfo.setMinFilter(vk::Filter::eNearest);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+      break;
+    default:
+      samplerCreateInfo.setMinFilter(vk::Filter::eLinear);
+      samplerCreateInfo.setMipmapMode(vk::SamplerMipmapMode::eLinear);
+  }
+
+  switch (u) {
+    case aiTextureMapMode_Wrap:
+      samplerCreateInfo.setAddressModeU(vk::SamplerAddressMode::eRepeat);
+      break;
+    case aiTextureMapMode_Clamp:
+      samplerCreateInfo.setAddressModeU(vk::SamplerAddressMode::eClampToEdge);
+      break;
+    case aiTextureMapMode_Mirror:
+      samplerCreateInfo.setAddressModeU(
+          vk::SamplerAddressMode::eMirroredRepeat);
+      break;
+    default:
+      samplerCreateInfo.setAddressModeU(vk::SamplerAddressMode::eRepeat);
+  }
+
+  switch (v) {
+    case aiTextureMapMode_Wrap:
+      samplerCreateInfo.setAddressModeV(vk::SamplerAddressMode::eRepeat);
+      break;
+    case aiTextureMapMode_Clamp:
+      samplerCreateInfo.setAddressModeV(vk::SamplerAddressMode::eClampToEdge);
+      break;
+    case aiTextureMapMode_Mirror:
+      samplerCreateInfo.setAddressModeV(
+          vk::SamplerAddressMode::eMirroredRepeat);
+      break;
+    default:
+      samplerCreateInfo.setAddressModeV(vk::SamplerAddressMode::eRepeat);
+  }
+
+  return samplerCreateInfo;
 }

@@ -12,7 +12,7 @@ void Display::init() {
   SDL_ASSERT(displays);
 
   const SDL_DisplayMode* displayMode = SDL_GetCurrentDisplayMode(displays[0]);
-  
+
   SDL_ASSERT(displayMode);
 
   width = displayMode->w;
@@ -20,7 +20,7 @@ void Display::init() {
 
   window = SDL_CreateWindow("Vulkan", width, height,
                             SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-  
+
   SDL_ASSERT(window);
 
   uint32_t extensionCount{};
