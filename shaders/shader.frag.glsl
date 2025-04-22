@@ -1,6 +1,6 @@
 #version 450
 
-layout(location = 0) in vec3 inColor;
+layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec2 inTexCoord;
 layout(location = 2) in vec3 inPos;
 layout(location = 3) in vec3 inNormals;
@@ -16,15 +16,17 @@ layout(push_constant) uniform FrameData {
   uint spotLights;
 }
 frameData;
-
 layout(set = 0, binding = 0) uniform sampler2D diffuseMap;
 layout(set = 0, binding = 1) uniform sampler2D specularMap;
 
 layout(set = 1, binding = 0) uniform Material {
   vec3 specular;
-  vec3 emissive;
-  vec3 color;
   float shininess;
+  vec3 emissive;
+  float alphaCutoff;
+  vec3 color;
+  float transmissionFactor;
+  float roughness;
 }
 material;
 
@@ -60,6 +62,8 @@ layout(set = 2, binding = 2) uniform SpotLight {
   float outerCutOff;
 }
 spotLights[8];
+
+layout(set = 4, binding = 0) uniform samplerCube reflectionCube;
 
 vec3 calcDirectionLight(vec3 normal, vec3 viewDir) {
   vec3 lightDir = normalize(directionalLight.direction);
@@ -152,6 +156,17 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   return (specular + ambient + diffuse);
 }
 
+vec3 calcCubemapReflection(vec3 baseColor, vec3 viewDir, vec3 normal) {
+  vec3 r = reflect(-viewDir, normal);
+  vec4 color = texture(reflectionCube, r);
+  float dot = max(dot(normal, viewDir), 0.0);
+  float reflectionStrength = mix(1.0, 0.0, pow(material.roughness, 2.0));
+  float fresnel = pow(1.0 - dot, 5.0) * (1.0 - material.roughness);
+  float reflectionFactor =
+      reflectionStrength + fresnel * (1.0 - reflectionStrength);
+  return mix(baseColor, vec3(color), reflectionFactor);
+}
+
 void main() {
   vec3 normal = normalize(inNormals);
   vec3 viewDir = normalize(frameData.camera - inPos);
@@ -169,10 +184,12 @@ void main() {
 
   vec4 color = texture(diffuseMap, inTexCoord);
 
-  if (color.a < 0.01) {
+  if (color.a < material.alphaCutoff) {
     discard;
   }
 
-  outColor =
-      vec4(inColor * material.color * vec3(color) * shadow, 1.0);
+  color.a *= 1.0 - material.transmissionFactor;
+  color.xyz = calcCubemapReflection(color.xyz, viewDir, normal);
+
+  outColor = inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0);
 }

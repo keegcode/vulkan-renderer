@@ -3,6 +3,14 @@
 #include <SDL3/SDL.h>
 #include <vulkan/vulkan_core.h>
 #include <vector>
+#include <cstdio>
+#include "debugbreak.h"
+
+#define SDL_ASSERT(expr) \
+  if (expr) { \
+  } else { \
+    printf("Assertion `%s` failed.\nError: %s\n", #expr, SDL_GetError()); DEBUG_BREAK(); \
+  }
 
 class Display {
  public:

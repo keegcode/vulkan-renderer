@@ -1,11 +1,20 @@
 #pragma once
 
+#include <cstdio>
 #include <glm/ext/matrix_float4x4.hpp>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include "VkBootstrap.h"
 #include "display.hpp"
 #include "vk_mem_alloc.h"
+
+template<typename T>
+void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
+  if (!vkbResult.has_value()) {
+    printf("%s\n", vkbResult.error().message().c_str());
+    DEBUG_BREAK();
+  }
+}
 
 struct FrameData {
   glm::mat4 model;
@@ -18,7 +27,7 @@ struct FrameData {
 
 struct Vertex {
   float position[3];
-  float clr[3];
+  float clr[4];
   float uv[2];
   float normals[3];
 };
@@ -40,9 +49,9 @@ struct Descriptor {
 
 struct Image {
   vk::Image image;
+  uint32_t mipLevels;
   vk::ImageView view;
   vk::Extent3D extent;
-  vk::ImageLayout layout = vk::ImageLayout::eUndefined;
   VmaAllocation allocation;
 };
 
@@ -58,12 +67,27 @@ struct Pipeline {
   vk::PipelineLayout layout;
 };
 
+struct ImageMemoryBarrierOptions {
+  vk::Image image;
+  vk::ImageLayout newLayout;
+  vk::ImageLayout oldLayout = vk::ImageLayout::eUndefined;
+  vk::AccessFlags2 srcAccessMask = vk::AccessFlagBits2::eNone;
+  vk::AccessFlags2 dstAccessMask = vk::AccessFlagBits2::eNone;
+  vk::PipelineStageFlags2 srcStageMask = vk::PipelineStageFlagBits2::eNone;
+  vk::PipelineStageFlags2 dstStageMask = vk::PipelineStageFlagBits2::eNone;
+  uint32_t layers = 1;
+  uint32_t mipLevel = 0;
+  uint32_t levelCount = 1;
+};
+
 class GPU {
  public:
   Display display;
 
   vkb::Instance instance;
   vk::detail::DispatchLoaderDynamic dld;
+
+  vk::SampleCountFlagBits sampleCount;
 
   vk::SurfaceKHR surface;
   vkb::PhysicalDevice physicalDevice;
@@ -102,6 +126,7 @@ class GPU {
   vk::DescriptorSetLayout skyboxLayout;
 
   Image depthImage;
+  Image multisampleImage;
 
   vk::Viewport viewport;
   vk::Rect2D scissors;
@@ -159,7 +184,7 @@ class GPU {
 
   void copyBufferToImage(const Buffer& buffer,
                          const Image& image,
-                         const vk::Extent2D& extent, 
+                         const vk::Extent2D& extent,
                          const uint32_t layers = 1);
 
   vk::DeviceAddress getBufferDeviceAddress(const Buffer& buffer);
@@ -168,15 +193,23 @@ class GPU {
   void endSingleSubmitCommand(const vk::CommandBuffer& singleSubmitBuffer);
 
   Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent);
-  Image createCubemapTexture(const std::array<uint8_t*, 6>& data, const vk::Extent2D& extent);
+  Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
+                             const vk::Extent2D& extent);
+  void createImages();
   void createDepthImage();
+  void createMultiSampleImage();
+  void generateMipmaps(const Image& image);
 
-  vk::ImageLayout transitionImageLayout(const Image& image,
-                                        const vk::ImageLayout& newLayout, const uint32_t layers = 1);
+  void addImageMemoryBarrier(vk::CommandBuffer& cmdBuffer, const ImageMemoryBarrierOptions& options);
 
   Shader loadShader(const std::string_view path, vk::ShaderStageFlagBits stage);
 
-  Pipeline createPipeline(
+  Pipeline createEntityPipeline(
+      const Shader& vertexShader,
+      const Shader& fragmentShader,
+      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts);
+
+  Pipeline createSkyboxPipeline(
       const Shader& vertexShader,
       const Shader& fragmentShader,
       std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts);
@@ -185,6 +218,8 @@ class GPU {
   int32_t acquireNextImage();
   void resetFence();
   void beginRendering(uint32_t imageIndex);
+  void endRendering();
+  void submit(const uint32_t imageIndex);
 
   void destroyPipeline(const Pipeline& pipeline);
   void destroyShader(const Shader& shader);

@@ -14,10 +14,7 @@ std::vector<char> utils::readFile(const std::string_view path) {
   std::ifstream file{path.data(),
                      std::ios::in | std::ios::binary | std::ios::ate};
 
-  if (!file.is_open()) {
-    throw std::runtime_error{std::string{"Failed to open file: "} +
-                             path.data()};
-  }
+  assert(file.is_open());
 
   std::ifstream::pos_type size = file.tellg();
   file.seekg(0, std::ios::beg);

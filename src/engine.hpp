@@ -1,22 +1,17 @@
 #pragma once
 
 #include <assimp/scene.h>
+#include <filesystem>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include <filesystem>
 
 #include "display.hpp"
 #include "gpu.hpp"
 
-const std::array<std::string, 6> CUBEMAP_FILES{
-  "left",
-  "right",
-  "top",
-  "bottom",
-  "front",
-  "back"
-};
+const std::array<std::string, 6> CUBEMAP_FILES{"right",  "left",  "top",
+                                               "bottom", "front", "back"};
 
 struct SpotLight {
   glm::vec3 direction;
@@ -76,14 +71,21 @@ struct Mesh {
   uint32_t indicesCount;
 };
 
+enum class AlphaMode { Opaque, Blend, Mask };
+
 struct Material {
-  alignas(16) glm::vec3 specular = glm::vec3{1.0};
-  alignas(16) glm::vec3 emissive = glm::vec3{0.0};
-  alignas(16) glm::vec3 color = glm::vec3{1.0};
+  glm::vec3 specular = glm::vec3{1.0};
   float shininess = 32.0;
+  glm::vec3 emissive = glm::vec3{0.0};
+  float alphaCutoff = 0.001;
+  glm::vec3 color = glm::vec3{1.0};
+  float transmissionFactor = 0.0f;
+  float rougness = 1.0f;
   Buffer uniform;
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
+  vk::CullModeFlagBits cullMode = vk::CullModeFlagBits::eBack;
+  AlphaMode alphaMode = AlphaMode::Opaque;
 };
 
 enum class TextureType {
@@ -127,7 +129,9 @@ class Engine {
  public:
   Pipeline pipeline;
   Pipeline skyboxPipeline;
+
   Image skybox;
+  Image reflectionCube;
 
   Projection projection;
 
@@ -148,6 +152,7 @@ class Engine {
   Descriptor texturesDescriptor;
   Descriptor lightsDescriptor;
   Descriptor skyboxDescriptor;
+  Descriptor reflectionCubeDescriptor;
 
   bool isRunning = true;
 
@@ -177,4 +182,6 @@ class Engine {
 
   Image loadImage(const std::filesystem::path& path);
   void loadSkybox();
+  void loadReflectionCube();
+  void drawEntities(const FrameData& frameData);
 };
