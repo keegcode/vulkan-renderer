@@ -149,48 +149,48 @@ class GPU {
   void createViewportAndScissors();
 
   Descriptor createStorageBufferDescriptor(
-      const vk::DescriptorSetLayout& layout);
+      const vk::DescriptorSetLayout& layout) const;
   Descriptor createUniformDescriptor(const uint32_t count,
-                                     const vk::DescriptorSetLayout& layout);
+                                     const vk::DescriptorSetLayout& layout) const;
   Descriptor createTextureDescriptor(const uint32_t count,
-                                     const vk::DescriptorSetLayout& layout);
+                                     const vk::DescriptorSetLayout& layout) const;
   void setDescriptorUniformBuffer(const Descriptor& descriptor,
                                   const Buffer& src,
                                   uint32_t index,
-                                  uint32_t binding);
+                                  uint32_t binding) const;
   void setDescriptorStorageBuffer(const Descriptor& descriptor,
                                   const Buffer& src,
                                   uint32_t index,
-                                  uint32_t binding);
+                                  uint32_t binding) const;
   void setDescriptorImage(const Descriptor& descriptor,
                           const Image& src,
                           const vk::Sampler& sampler,
                           uint32_t index,
-                          uint32_t binding);
+                          uint32_t binding) const;
   vk::DeviceSize getDescriptorBindingOffset(const Descriptor& descriptor,
-                                            uint32_t binding);
+                                            uint32_t binding) const;
 
   Buffer createBuffer(const vk::DeviceSize size,
-                      const vk::Flags<vk::BufferUsageFlagBits> usage);
+                      const vk::Flags<vk::BufferUsageFlagBits> usage) const;
 
   Buffer createBuffer(const void* data,
                       const vk::DeviceSize size,
-                      const vk::Flags<vk::BufferUsageFlagBits> usage);
+                      const vk::Flags<vk::BufferUsageFlagBits> usage) const;
 
   Buffer createBuffer(const vk::DeviceSize s,
                       const vk::Flags<vk::BufferUsageFlagBits> usage,
                       VmaMemoryUsage memoryUsage,
-                      VmaAllocationCreateFlags createFlags);
+                      VmaAllocationCreateFlags createFlags) const;
 
   void copyBufferToImage(const Buffer& buffer,
                          const Image& image,
                          const vk::Extent2D& extent,
-                         const uint32_t layers = 1);
+                         const uint32_t layers = 1) const;
 
-  vk::DeviceAddress getBufferDeviceAddress(const Buffer& buffer);
+  vk::DeviceAddress getBufferDeviceAddress(const Buffer& buffer) const;
 
-  vk::CommandBuffer beginSingleSubmitCommand();
-  void endSingleSubmitCommand(const vk::CommandBuffer& singleSubmitBuffer);
+  vk::CommandBuffer beginSingleSubmitCommand() const;
+  void endSingleSubmitCommand(const vk::CommandBuffer& singleSubmitBuffer) const;
 
   Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
@@ -202,29 +202,29 @@ class GPU {
 
   void addImageMemoryBarrier(vk::CommandBuffer& cmdBuffer, const ImageMemoryBarrierOptions& options);
 
-  Shader loadShader(const std::string_view path, vk::ShaderStageFlagBits stage);
+  Shader loadShader(const std::string_view path, vk::ShaderStageFlagBits stage) const;
 
   Pipeline createEntityPipeline(
       const Shader& vertexShader,
       const Shader& fragmentShader,
-      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts);
+      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const;
 
   Pipeline createSkyboxPipeline(
       const Shader& vertexShader,
       const Shader& fragmentShader,
-      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts);
+      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const;
 
-  void waitForFence();
-  int32_t acquireNextImage();
-  void resetFence();
+  void waitForFence() const;
+  int32_t acquireNextImage() const;
+  void resetFence() const;
   void beginRendering(uint32_t imageIndex);
-  void endRendering();
+  void endRendering() const;
   void submit(const uint32_t imageIndex);
 
-  void destroyPipeline(const Pipeline& pipeline);
-  void destroyShader(const Shader& shader);
-  void destroyDescriptor(const Descriptor& descriptor);
-  void destroyBuffer(const Buffer& buffer);
-  void destroyImage(const Image& image);
-  void destroy();
+  void destroyPipeline(const Pipeline& pipeline) const;
+  void destroyShader(const Shader& shader) const;
+  void destroyDescriptor(const Descriptor& descriptor) const;
+  void destroyBuffer(const Buffer& buffer) const;
+  void destroyImage(const Image& image) const;
+  void destroy() const;
 };

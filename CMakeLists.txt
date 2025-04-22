@@ -1,15 +1,26 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(VulkanRenderer VERSION 1.0 LANGUAGES CXX)
-
+set(CMAKE_TOOLCHAIN_FILE, "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+if(NOT DEFINED VCPKG_TARGET_TRIPLET)
+    if(WIN32)
+        set(VCPKG_TARGET_TRIPLET, "x64-windows")
+    elseif(UNIX AND NOT APPLE)
+        set(VCPKG_TARGET_TRIPLET, "x64-linux")
+    elseif(APPLE)
+        set(VCPKG_TARGET_TRIPLET, "x64-osx")
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+project(VulkanRenderer VERSION 1.0 LANGUAGES CXX)
 
 find_package(Vulkan 1.3 REQUIRED)          
 find_package(SDL3 REQUIRED)          
@@ -38,8 +49,8 @@ add_executable(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME}
-    PUBLIC 
-        assimp
+    PRIVATE 
+        assimp::assimp
         glm::glm
         Vulkan::Vulkan
         SDL3::SDL3

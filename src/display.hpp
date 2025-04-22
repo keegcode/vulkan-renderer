@@ -21,6 +21,6 @@ class Display {
   uint32_t height;
 
   void init();
-  void destroy();
-  VkSurfaceKHR createVulkanSurface(const VkInstance& instance);
+  void destroy() const;
+  VkSurfaceKHR createVulkanSurface(const VkInstance& instance) const;
 };

@@ -27,7 +27,7 @@ void GPU::createInstance() {
   dld.init(instance.instance, instance.fp_vkGetInstanceProcAddr);
 };
 
-void GPU::destroy() {
+void GPU::destroy() const {
   device.destroySampler(diffuseSampler);
   device.destroySampler(specularSampler);
   device.destroySampler(skyboxSampler);
@@ -335,7 +335,7 @@ void GPU::createDescriptorSetLayouts() {
 }
 
 Descriptor GPU::createStorageBufferDescriptor(
-    const vk::DescriptorSetLayout& layout) {
+    const vk::DescriptorSetLayout& layout) const {
   Descriptor descriptor{};
   descriptor.layout = layout;
   descriptor.type = vk::DescriptorType::eStorageBuffer;
@@ -359,7 +359,7 @@ Descriptor GPU::createStorageBufferDescriptor(
 };
 
 Descriptor GPU::createUniformDescriptor(uint32_t count,
-                                        const vk::DescriptorSetLayout& layout) {
+                                        const vk::DescriptorSetLayout& layout) const {
   Descriptor descriptor{};
   descriptor.layout = layout;
   descriptor.type = vk::DescriptorType::eUniformBuffer;
@@ -383,7 +383,7 @@ Descriptor GPU::createUniformDescriptor(uint32_t count,
 };
 
 Descriptor GPU::createTextureDescriptor(uint32_t count,
-                                        const vk::DescriptorSetLayout& layout) {
+                                        const vk::DescriptorSetLayout& layout) const {
   Descriptor descriptor{};
   descriptor.layout = layout;
   descriptor.type = vk::DescriptorType::eCombinedImageSampler;
@@ -410,7 +410,7 @@ Descriptor GPU::createTextureDescriptor(uint32_t count,
 void GPU::setDescriptorStorageBuffer(const Descriptor& descriptor,
                                      const Buffer& src,
                                      uint32_t index,
-                                     uint32_t binding) {
+                                     uint32_t binding) const {
   char* storageBufferDescriptorPtr =
       reinterpret_cast<char*>(descriptor.buffer.allocationInfo.pMappedData);
 
@@ -437,7 +437,7 @@ void GPU::setDescriptorStorageBuffer(const Descriptor& descriptor,
 void GPU::setDescriptorUniformBuffer(const Descriptor& descriptor,
                                      const Buffer& src,
                                      uint32_t index,
-                                     uint32_t binding) {
+                                     uint32_t binding) const {
   char* uniformDescriptorPtr =
       reinterpret_cast<char*>(descriptor.buffer.allocationInfo.pMappedData);
 
@@ -464,7 +464,7 @@ void GPU::setDescriptorImage(const Descriptor& descriptor,
                              const Image& src,
                              const vk::Sampler& sampler,
                              uint32_t index,
-                             uint32_t binding) {
+                             uint32_t binding) const {
   char* textureDescriptorPtr =
       reinterpret_cast<char*>(descriptor.buffer.allocationInfo.pMappedData);
 
@@ -489,19 +489,19 @@ void GPU::setDescriptorImage(const Descriptor& descriptor,
 }
 
 vk::DeviceSize GPU::getDescriptorBindingOffset(const Descriptor& descriptor,
-                                               uint32_t binding) {
+                                               uint32_t binding) const {
   return device.getDescriptorSetLayoutBindingOffsetEXT(descriptor.layout,
                                                        binding, dld);
 }
 
-void GPU::destroyDescriptor(const Descriptor& descriptor) {
+void GPU::destroyDescriptor(const Descriptor& descriptor) const {
   vmaDestroyBuffer(allocator, descriptor.buffer.buffer,
                    descriptor.buffer.allocation);
 }
 
 Buffer GPU::createBuffer(const void* data,
                          const vk::DeviceSize size,
-                         vk::Flags<vk::BufferUsageFlagBits> usage) {
+                         vk::Flags<vk::BufferUsageFlagBits> usage) const {
   Buffer buffer{};
   buffer.size = size;
 
@@ -528,7 +528,7 @@ Buffer GPU::createBuffer(const void* data,
 }
 
 Buffer GPU::createBuffer(const vk::DeviceSize size,
-                         const vk::Flags<vk::BufferUsageFlagBits> usage) {
+                         const vk::Flags<vk::BufferUsageFlagBits> usage) const {
   Buffer buffer{};
   buffer.size = size;
 
@@ -555,7 +555,7 @@ Buffer GPU::createBuffer(const vk::DeviceSize size,
 Buffer GPU::createBuffer(const vk::DeviceSize size,
                          const vk::Flags<vk::BufferUsageFlagBits> usage,
                          VmaMemoryUsage memoryUsage,
-                         VmaAllocationCreateFlags createFlags) {
+                         VmaAllocationCreateFlags createFlags) const {
   Buffer buffer{};
   buffer.size = size;
 
@@ -581,7 +581,7 @@ Buffer GPU::createBuffer(const vk::DeviceSize size,
 void GPU::copyBufferToImage(const Buffer& buffer,
                             const Image& image,
                             const vk::Extent2D& extent,
-                            const uint32_t layers) {
+                            const uint32_t layers) const {
   std::vector<vk::BufferImageCopy2> copyRegions(layers);
 
   uint32_t offset = 0;
@@ -620,14 +620,14 @@ void GPU::copyBufferToImage(const Buffer& buffer,
   endSingleSubmitCommand(copyBufferToImageCmdBuffer);
 }
 
-vk::DeviceAddress GPU::getBufferDeviceAddress(const Buffer& buffer) {
+vk::DeviceAddress GPU::getBufferDeviceAddress(const Buffer& buffer) const {
   vk::BufferDeviceAddressInfo bufferDeviceAddressInfo =
       vk::BufferDeviceAddressInfo{}.setBuffer(buffer.buffer);
 
   return device.getBufferAddress(bufferDeviceAddressInfo);
 }
 
-vk::CommandBuffer GPU::beginSingleSubmitCommand() {
+vk::CommandBuffer GPU::beginSingleSubmitCommand() const {
   vk::CommandBuffer singleSubmitBuffer;
 
   vk::CommandBufferAllocateInfo commandBufferAllocateInfo =
@@ -647,7 +647,7 @@ vk::CommandBuffer GPU::beginSingleSubmitCommand() {
   return singleSubmitBuffer;
 }
 
-void GPU::endSingleSubmitCommand(const vk::CommandBuffer& singleSubmitBuffer) {
+void GPU::endSingleSubmitCommand(const vk::CommandBuffer& singleSubmitBuffer) const {
   singleSubmitBuffer.end();
 
   vk::SubmitInfo submitInfo = vk::SubmitInfo{}
@@ -976,11 +976,11 @@ void GPU::addImageMemoryBarrier(vk::CommandBuffer& cmdBuffer, const ImageMemoryB
 }
 
 
-void GPU::destroyBuffer(const Buffer& buffer) {
+void GPU::destroyBuffer(const Buffer& buffer) const {
   vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
 }
 
-void GPU::destroyImage(const Image& image) {
+void GPU::destroyImage(const Image& image) const {
   device.destroyImageView(image.view);
   vmaDestroyImage(allocator, image.image, image.allocation);
 }
@@ -1029,7 +1029,7 @@ void GPU::destroySwapchainResources() {
 }
 
 Shader GPU::loadShader(const std::string_view path,
-                       vk::ShaderStageFlagBits stage) {
+                       vk::ShaderStageFlagBits stage) const {
   Shader shader{};
   shader.stage = stage;
 
@@ -1045,14 +1045,14 @@ Shader GPU::loadShader(const std::string_view path,
   return shader;
 }
 
-void GPU::destroyShader(const Shader& shader) {
+void GPU::destroyShader(const Shader& shader) const {
   device.destroyShaderModule(shader.module);
 }
 
 Pipeline GPU::createEntityPipeline(
     const Shader& vertexShader,
     const Shader& fragmentShader,
-    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) {
+    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const {
   Pipeline pipeline{};
 
   std::vector<vk::VertexInputBindingDescription> inputBindings{
@@ -1240,7 +1240,7 @@ Pipeline GPU::createEntityPipeline(
 Pipeline GPU::createSkyboxPipeline(
     const Shader& vertexShader,
     const Shader& fragmentShader,
-    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) {
+    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const {
   Pipeline pipeline{};
 
   std::vector<vk::VertexInputBindingDescription> inputBindings{
@@ -1422,18 +1422,18 @@ Pipeline GPU::createSkyboxPipeline(
   return pipeline;
 }
 
-void GPU::destroyPipeline(const Pipeline& pipeline) {
+void GPU::destroyPipeline(const Pipeline& pipeline) const {
   destroyShader(pipeline.vertexShader);
   destroyShader(pipeline.fragmentShader);
   device.destroyPipelineLayout(pipeline.layout);
   device.destroyPipeline(pipeline.pipeline);
 }
 
-void GPU::waitForFence() {
+void GPU::waitForFence() const {
   assert(device.waitForFences(1, &fence, 1, UINT64_MAX) == vk::Result::eSuccess);
 }
 
-int32_t GPU::acquireNextImage() {
+int32_t GPU::acquireNextImage() const {
   uint32_t imageIndex;
   vk::Result acquireResult = device.acquireNextImageKHR(
       swapchain, UINT64_MAX, presentCompleteSemaphore, nullptr, &imageIndex);
@@ -1454,7 +1454,7 @@ int32_t GPU::acquireNextImage() {
   return static_cast<int32_t>(imageIndex);
 }
 
-void GPU::resetFence() {
+void GPU::resetFence() const {
   assert(device.resetFences(1, &fence) == vk::Result::eSuccess);
 }
 
@@ -1631,7 +1631,7 @@ void GPU::createImages() {
   createMultiSampleImage();
 }
 
-void GPU::endRendering() {
+void GPU::endRendering() const {
   commandBuffer.endRendering();
   commandBuffer.end();
 }

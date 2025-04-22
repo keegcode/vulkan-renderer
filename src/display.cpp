@@ -36,13 +36,13 @@ void Display::init() {
   SDL_ASSERT(vulkanExtensions.size() == extensionCount);
 }
 
-void Display::destroy() {
+void Display::destroy() const {
   SDL_DestroyWindow(window);
   SDL_Vulkan_UnloadLibrary();
   SDL_Quit();
 }
 
-VkSurfaceKHR Display::createVulkanSurface(const VkInstance& instance) {
+VkSurfaceKHR Display::createVulkanSurface(const VkInstance& instance) const {
   VkSurfaceKHR surface{};
   SDL_ASSERT(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
   return surface;

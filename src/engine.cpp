@@ -273,7 +273,8 @@ void Engine::createPipeline() {
 
 Image Engine::loadImage(const std::filesystem::path& path) {
   int height, width;
-  uint8_t* data = stbi_load(path.c_str(), &width, &height, 0, STBI_rgb_alpha);
+  uint8_t* data =
+      stbi_load(path.string().c_str(), &width, &height, 0, STBI_rgb_alpha);
 
   assert(data != nullptr);
 
@@ -417,7 +418,7 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   Assimp::Importer importer{};
 
   const aiScene* scene = importer.ReadFile(
-      path.c_str(),
+      path.string().c_str(),
       aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_OptimizeMeshes);
 
   assert(scene != nullptr);
@@ -565,7 +566,7 @@ void Engine::loadMaterial(Asset& asset,
     diffuseMap.type = TextureType::BaseColor;
     diffuseMap.image =
         loadImage(asset.path.parent_path().append(diffuseMapPath.C_Str()));
-    diffuseMap.path = asset.path.parent_path().append(diffuseMapPath.C_Str());
+    diffuseMap.path = asset.path.parent_path().append(diffuseMapPath.C_Str()).string();
     material.diffuseTextureIdx = textures.size();
     textures.push_back(diffuseMap);
   }
@@ -578,7 +579,7 @@ void Engine::loadMaterial(Asset& asset,
     specularMap.type = TextureType::Specular;
     specularMap.image =
         loadImage(asset.path.parent_path().append(specularMapPath.C_Str()));
-    specularMap.path = asset.path.parent_path().append(specularMapPath.C_Str());
+    specularMap.path = asset.path.parent_path().append(specularMapPath.C_Str()).string();
     material.specularTextureIdx = textures.size();
     textures.push_back(specularMap);
   }
