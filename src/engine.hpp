@@ -1,5 +1,7 @@
 #pragma once
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include <assimp/material.h>
 #include <assimp/scene.h>
 #include <filesystem>

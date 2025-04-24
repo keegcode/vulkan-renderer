@@ -67,14 +67,13 @@ layout(set = 4, binding = 0) uniform samplerCube reflectionCube;
 
 vec3 calcDirectionLight(vec3 normal, vec3 viewDir) {
   vec3 lightDir = normalize(directionalLight.direction);
+  vec3 halfDir = vec3(lightDir + viewDir);
 
   float diff = max(dot(-lightDir, normal), 0.0);
   vec3 diffuse =
       directionalLight.diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
 
-  vec3 reflection = reflect(lightDir, normal);
-
-  float spec = pow(max(dot(viewDir, reflection), 0.0), material.shininess);
+  float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);
   vec3 specular =
       directionalLight.specular * spec * vec3(texture(specularMap, inTexCoord));
 
@@ -92,9 +91,9 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 diffuse =
       pointLights[idx].diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
 
-  vec3 reflection = reflect(-lightDir, normal);
+  vec3 halfDir = vec3(-lightDir + viewDir);
 
-  float spec = pow(max(dot(viewDir, reflection), 0.0), material.shininess);
+  float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);
   vec3 specular =
       pointLights[idx].specular * spec * vec3(texture(specularMap, inTexCoord));
 
@@ -134,10 +133,10 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   float diff = max(dot(fragLightDir, normal), 0.0);
   vec3 diffuse =
       spotLights[idx].diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
+  
+  vec3 halfDir = normalize(-fragLightDir + viewDir);
 
-  vec3 reflection = reflect(-fragLightDir, normal);
-
-  float spec = pow(max(dot(viewDir, reflection), 0.0), material.shininess);
+  float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);
   vec3 specular =
       spotLights[idx].specular * spec * vec3(texture(specularMap, inTexCoord));
 
@@ -148,7 +147,6 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
 
   diffuse *= intensity;
   specular *= intensity;
-
   ambient *= attenuation;
   diffuse *= attenuation;
   specular *= attenuation;

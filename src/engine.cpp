@@ -18,7 +18,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
+#include <glm/gtx/norm.hpp>
 #include <vector>
 
 #include <glm/common.hpp>
@@ -31,6 +33,7 @@
 
 #include "gpu.hpp"
 #include "stb_image.h"
+
 
 Engine::Engine(const Display& d, const GPU& g) : display{d}, gpu{g} {};
 
@@ -538,7 +541,7 @@ void Engine::loadMaterial(Asset& asset,
 
   float shininess = 32.0;
   if (assimpMaterial->Get(AI_MATKEY_SHININESS, shininess) == aiReturn_SUCCESS) {
-    material.shininess = std::clamp(shininess, 4.0f, 32.0f);
+    material.shininess = std::clamp(shininess, 1.0f, 32.0f);
   };
 
   int twoSided = 0;
@@ -562,11 +565,11 @@ void Engine::loadMaterial(Asset& asset,
     material.transmissionFactor = transmissionFactor;
   };
 
-  // float roughness = 1.0f;
-  // if (assimpMaterial->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) ==
-  //     aiReturn_SUCCESS) {
-  //   material.rougness = roughness;
-  // };
+  float roughness = 1.0f;
+  if (assimpMaterial->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) ==
+      aiReturn_SUCCESS) {
+    material.rougness = 1.0f;
+  };
 
   if (asset.path == "./assets/DamagedHelmet/glTF/DamagedHelmet.gltf") {
     material.rougness = 0.8f;
@@ -770,8 +773,8 @@ void Engine::drawEntities(const FrameData& frameData) {
 
   gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
 
-  vk::Bool32 enables[1] = {false};
-  gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
+  std::vector<std::array<uint32_t, 3>> transparent{};
+  std::vector<std::array<uint32_t, 2>> opaque{};
 
   for (size_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
@@ -781,35 +784,76 @@ void Engine::drawEntities(const FrameData& frameData) {
       Material& material = materials[mesh.materialIdx];
 
       if (material.alphaMode != AlphaMode::Opaque) {
-        vk::Bool32 enables[1] = {true};
-        gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
+        uint32_t distance = glm::length2(camera.position - glm::vec3(entity.matrix[3]));
+        transparent.push_back({static_cast<uint32_t>(i), meshIdx, distance});
       } else {
-        vk::Bool32 enables[1] = {false};
-        gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
+        opaque.push_back({static_cast<uint32_t>(i), meshIdx});
       }
-
-      gpu.commandBuffer.setCullMode(material.cullMode);
-
-      gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
-                                          offsets.data());
-
-      gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
-                                        vk::IndexType::eUint32);
-
-      std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
-
-      std::vector<vk::DeviceSize> descriptorOffsets{
-          texturesDescriptor.size * mesh.materialIdx,
-          materialsDescriptor.size * mesh.materialIdx, 0,
-          entitiesDescriptor.size * i, 0};
-
-      gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-          vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 5,
-          descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
-
-      gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
     }
   }
+
+  vk::Bool32 enables[1] = {false};
+  gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
+  
+  for (const auto& [entityIdx, meshIdx] : opaque) {
+    Mesh& mesh = meshes[meshIdx];
+    Material& material = materials[mesh.materialIdx];
+
+    gpu.commandBuffer.setCullMode(material.cullMode);
+
+    gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
+                                        offsets.data());
+
+    gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                      vk::IndexType::eUint32);
+
+    std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
+
+    std::vector<vk::DeviceSize> descriptorOffsets{
+        texturesDescriptor.size * mesh.materialIdx,
+        materialsDescriptor.size * mesh.materialIdx, 0,
+        entitiesDescriptor.size * entityIdx, 0};
+
+    gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 5,
+        descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
+
+    gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+  }
+
+  enables[0] = true;
+  gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
+
+  std::sort(transparent.begin(), transparent.end(), [](const std::array<uint32_t, 3>& a, const std::array<uint32_t, 3>& b) {
+    return b[2] - a[2];
+  });
+
+  for (const auto& [entityIdx, meshIdx, dist] : transparent) {
+    Mesh& mesh = meshes[meshIdx];
+    Material& material = materials[mesh.materialIdx];
+
+    gpu.commandBuffer.setCullMode(material.cullMode);
+
+    gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
+                                        offsets.data());
+
+    gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                      vk::IndexType::eUint32);
+
+    std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
+
+    std::vector<vk::DeviceSize> descriptorOffsets{
+        texturesDescriptor.size * mesh.materialIdx,
+        materialsDescriptor.size * mesh.materialIdx, 0,
+        entitiesDescriptor.size * entityIdx, 0};
+
+    gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
+        vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 5,
+        descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
+
+    gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+  }
+
 }
 
 vk::SamplerCreateInfo Engine::extractGLTFSampler(const aiTextureMapMode u,

@@ -39,17 +39,17 @@ int32_t main() {
   config.directionalLight.direction = glm::vec3{-1.0, -1.0, 0.0};
   config.directionalLight.position = glm::vec3{0.0, 100.0, 0.0};
   config.directionalLight.ambient = glm::vec3{0.1};
-  config.directionalLight.diffuse = glm::vec3{0.5};
-  config.directionalLight.specular = glm::vec3{0.4};
+  config.directionalLight.diffuse = glm::vec3{0.1};
+  config.directionalLight.specular = glm::vec3{0.1};
 
   PointLight pointLight{};
   pointLight.position = glm::vec3{0.0, 5.0, 100.0};
-  pointLight.ambient = glm::vec3{0.1};
-  pointLight.diffuse = glm::vec3{0.8};
-  pointLight.specular = glm::vec3{0.7};
+  pointLight.ambient = glm::vec3{0.5};
+  pointLight.diffuse = glm::vec3{1.0};
+  pointLight.specular = glm::vec3{1.0};
   pointLight.constant = 1.0;
-  pointLight.linear = 0.002;
-  pointLight.quadratic = 0.00032;
+  pointLight.linear = 0.02;
+  pointLight.quadratic = 0.0032;
   config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
@@ -63,7 +63,7 @@ int32_t main() {
   spotLight.constant = 1.0;
   spotLight.linear = 0.0002;
   spotLight.quadratic = 0.000016;
-  config.spotLights.push_back(spotLight);
+  //config.spotLights.push_back(spotLight);
 
   Entity sponza{};
   sponza.matrix = glm::translate(glm::mat4{1.0}, glm::vec3{0.0, 0.0f, 0.0f}) *
