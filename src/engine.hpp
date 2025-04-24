@@ -3,6 +3,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include <assimp/material.h>
+#include <cstdint>
 #include <assimp/scene.h>
 #include <filesystem>
 #include <vulkan/vulkan.hpp>
@@ -140,6 +141,11 @@ enum class GLTFMinFilter {
   LinearMipmapLinear = 9987
 };
 
+struct ImageData {
+  int width, height;
+  uint8_t* data;
+};
+
 class Engine {
  public:
   Pipeline pipeline;
@@ -192,9 +198,9 @@ class Engine {
   void loadConfig(const EngineConfig& state);
 
   void loadAsset(const std::filesystem::path& path);
-  void processNode(Asset& asset, const aiScene* scene, const aiNode* node);
-  void loadMesh(Asset& asset, const aiScene* scene, const aiMesh* mesh);
-  void loadMaterial(Asset& asset, Mesh& mesh, const aiMaterial* assimpMaterial);
+  void processNode(Asset& asset, const aiScene* scene, const aiNode* node, std::vector<std::pair<uint32_t, std::string>>& tasks);
+  void loadMesh(Asset& asset, const aiScene* scene, const aiMesh* mesh, std::vector<std::pair<uint32_t, std::string>>& tasks);
+  void loadMaterial(Asset& asset, Mesh& mesh, const aiMaterial* assimpMaterial, std::vector<std::pair<uint32_t, std::string>>& tasks);
   vk::SamplerCreateInfo extractGLTFSampler(const aiTextureMapMode u,
                                            const aiTextureMapMode v,
                                            const GLTFMagFilter mag,
@@ -202,6 +208,7 @@ class Engine {
                                            const Image& image) const;
 
   Image loadImage(const std::filesystem::path& path);
+  Image loadCubemap(const std::string& type);
   void loadSkybox();
   void loadReflectionCube();
   void drawEntities(const FrameData& frameData);

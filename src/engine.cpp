@@ -21,6 +21,8 @@
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
 #include <glm/gtx/norm.hpp>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/common.hpp>
@@ -448,7 +450,39 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   Asset asset{};
   asset.path = path;
 
-  processNode(asset, scene, scene->mRootNode);
+  std::vector<std::pair<uint32_t, std::string>> tasks;
+  std::unordered_map<std::string, ImageData> cache;
+
+  processNode(asset, scene, scene->mRootNode, tasks);
+  
+  std::vector<std::thread> threads;
+
+  for (auto& [textureIdx, path] : tasks) {
+    std::string p = path;
+    threads.push_back(std::thread([&, p](){
+      int height, width;
+      uint8_t* data =
+          stbi_load(p.c_str(), &width, &height, 0, STBI_rgb_alpha);
+
+      assert(data != nullptr);
+
+      ImageData image{};
+      image.data = data;
+      image.height = height;
+      image.width = width;
+      
+      cache[p.c_str()] = image;
+    }));
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  for (auto& [textureIdx, path] : tasks) {
+    ImageData image = cache[path];
+    textures[textureIdx].image = gpu.createTexture2D(image.data, vk::Extent2D{}.setWidth(image.width).setHeight(image.height));
+  }
 
   importer.FreeScene();
   assets.push_back(asset);
@@ -456,7 +490,7 @@ void Engine::loadAsset(const std::filesystem::path& path) {
 
 void Engine::loadMesh(Asset& asset,
                       const aiScene* scene,
-                      const aiMesh* assimpMesh) {
+                      const aiMesh* assimpMesh, std::vector<std::pair<uint32_t, std::string>>& tasks) {
   Mesh mesh{};
 
   std::vector<Vertex> vertices;
@@ -508,7 +542,7 @@ void Engine::loadMesh(Asset& asset,
 
   mesh.indicesCount = indices.size();
 
-  loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex]);
+  loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex], tasks);
 
   asset.meshes.push_back(meshes.size());
   meshes.push_back(mesh);
@@ -516,7 +550,7 @@ void Engine::loadMesh(Asset& asset,
 
 void Engine::loadMaterial(Asset& asset,
                           Mesh& mesh,
-                          const aiMaterial* assimpMaterial) {
+                          const aiMaterial* assimpMaterial, std::vector<std::pair<uint32_t, std::string>>& tasks) {
   Material material{};
 
   aiColor3D emissiveColor{0.0, 0.0, 0.0};
@@ -581,9 +615,9 @@ void Engine::loadMaterial(Asset& asset,
                                &diffuseMapPath);
     Texture diffuseMap{};
     diffuseMap.type = TextureType::BaseColor;
-    diffuseMap.image =
-        loadImage(asset.path.parent_path().append(diffuseMapPath.C_Str()));
     material.diffuseTextureIdx = textures.size();
+
+    tasks.push_back({material.diffuseTextureIdx, asset.path.parent_path().append(diffuseMapPath.C_Str())});
 
     aiTextureMapMode mapModeU, mapModeV;
     GLTFMinFilter min;
@@ -614,6 +648,8 @@ void Engine::loadMaterial(Asset& asset,
         loadImage(asset.path.parent_path().append(specularMapPath.C_Str()));
     material.specularTextureIdx = textures.size();
 
+    tasks.push_back({material.specularTextureIdx, asset.path.parent_path().append(specularMapPath.C_Str())});
+
     aiTextureMapMode mapModeU, mapModeV;
     GLTFMinFilter min;
     GLTFMagFilter mag;
@@ -639,27 +675,35 @@ void Engine::loadMaterial(Asset& asset,
 
 void Engine::processNode(Asset& asset,
                          const aiScene* scene,
-                         const aiNode* node) {
+                         const aiNode* node, std::vector<std::pair<uint32_t, std::string>>& tasks) {
   for (size_t i = 0; i < node->mNumMeshes; i++) {
-    loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]]);
+    loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]], tasks);
   }
 
   for (size_t i = 0; i < node->mNumChildren; i++) {
-    processNode(asset, scene, node->mChildren[i]);
+    processNode(asset, scene, node->mChildren[i], tasks);
   }
 };
 
-void Engine::loadReflectionCube() {
+Image Engine::loadCubemap(const std::string& type) {
   int height, width;
   std::array<uint8_t*, 6> images{};
 
+  std::thread threads[6];
+
   for (size_t i = 0; i < 6; i++) {
-    std::string file = CUBEMAP_FILES[i];
-    uint8_t* data =
-        stbi_load(std::string{"./textures/reflection/" + file + ".png"}.c_str(),
-                  &width, &height, nullptr, STBI_rgb_alpha);
-    assert(data != nullptr);
-    images[i] = data;
+    threads[i] = std::thread{[&, i](){
+      std::string file = CUBEMAP_FILES[i];
+      uint8_t* data =
+          stbi_load(std::string{"./textures/" + type + "/" + file + ".png"}.c_str(),
+                    &width, &height, nullptr, STBI_rgb_alpha);
+      assert(data != nullptr);
+      images[i] = data;
+    }};
+  }
+
+  for (size_t i = 0; i < 6; i++) {
+    threads[i].join();
   }
 
   Image cubemap = gpu.createCubemapTexture(
@@ -668,6 +712,39 @@ void Engine::loadReflectionCube() {
   for (const auto& data : images) {
     stbi_image_free(data);
   }
+
+  return cubemap;
+}
+
+void Engine::loadSkybox() {
+  Image cubemap = loadCubemap("skybox");
+
+  vk::SamplerCreateInfo samplerCreateInfo =
+      vk::SamplerCreateInfo{}
+          .setMagFilter(vk::Filter::eLinear)
+          .setMinFilter(vk::Filter::eLinear)
+          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+          .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+          .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+          .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+          .setAnisotropyEnable(1)
+          .setMaxAnisotropy(
+              std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
+                                  .maxSamplerAnisotropy))
+          .setCompareEnable(0);
+
+  Texture tex{};
+  tex.image = cubemap;
+  tex.sampler = gpu.createSampler(samplerCreateInfo);
+  tex.type = TextureType::Cube;
+
+  skybox = tex;
+  skyboxDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
+  gpu.setDescriptorImage(skyboxDescriptor, tex.image, tex.sampler, 0, 0);
+}
+
+void Engine::loadReflectionCube() {
+  Image cubemap = loadCubemap("reflection");
 
   vk::SamplerCreateInfo samplerCreateInfo =
       vk::SamplerCreateInfo{}
@@ -690,52 +767,7 @@ void Engine::loadReflectionCube() {
 
   reflectionCube = tex;
   reflectionCubeDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
-  gpu.setDescriptorImage(reflectionCubeDescriptor, reflectionCube.image,
-                         tex.sampler, 0, 0);
-}
-
-void Engine::loadSkybox() {
-  int height, width;
-  std::array<uint8_t*, 6> images{};
-
-  for (size_t i = 0; i < 6; i++) {
-    std::string file = CUBEMAP_FILES[i];
-    uint8_t* data =
-        stbi_load(std::string{"./textures/skybox/" + file + ".png"}.c_str(),
-                  &width, &height, nullptr, STBI_rgb_alpha);
-    assert(data != nullptr);
-    images[i] = data;
-  }
-
-  Image cubemap = gpu.createCubemapTexture(
-      images, vk::Extent2D{}.setWidth(width).setHeight(height));
-
-  vk::SamplerCreateInfo samplerCreateInfo =
-      vk::SamplerCreateInfo{}
-          .setMagFilter(vk::Filter::eLinear)
-          .setMinFilter(vk::Filter::eLinear)
-          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-          .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-          .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-          .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-          .setAnisotropyEnable(1)
-          .setMaxAnisotropy(
-              std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
-                                  .maxSamplerAnisotropy))
-          .setCompareEnable(0);
-
-  for (const auto& data : images) {
-    stbi_image_free(data);
-  }
-
-  Texture tex{};
-  tex.image = cubemap;
-  tex.sampler = gpu.createSampler(samplerCreateInfo);
-  tex.type = TextureType::Cube;
-
-  skybox = tex;
-  skyboxDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
-  gpu.setDescriptorImage(skyboxDescriptor, tex.image, tex.sampler, 0, 0);
+  gpu.setDescriptorImage(reflectionCubeDescriptor, tex.image, tex.sampler, 0, 0);
 }
 
 void Engine::drawEntities(const FrameData& frameData) {
