@@ -3,21 +3,21 @@
 layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec2 inTexCoord;
 layout(location = 2) in vec3 inPos;
-layout(location = 3) in vec3 inNormals;
+layout(location = 3) in vec4 inLightPos;
+layout(location = 4) in vec3 inNormals;
 
 layout(location = 0) out vec4 outColor;
 
 layout(push_constant) uniform FrameData {
-  mat4 model;
-  mat4 view;
-  mat4 perspective;
   vec3 camera;
   uint pointLights;
   uint spotLights;
 }
 frameData;
+
 layout(set = 0, binding = 0) uniform sampler2D diffuseMap;
 layout(set = 0, binding = 1) uniform sampler2D specularMap;
+layout(set = 0, binding = 2) uniform sampler2D shadowMap;
 
 layout(set = 1, binding = 0) uniform Material {
   vec3 specular;
@@ -65,6 +65,18 @@ spotLights[8];
 
 layout(set = 4, binding = 0) uniform samplerCube reflectionCube;
 
+float calcShadow() {
+  vec3 pos = inLightPos.xyz / inLightPos.w;
+  pos = pos * 0.5 + 0.5;
+
+  float closestDepth = texture(shadowMap, pos.xy).r;
+  float currentDepth = pos.z;
+
+  float shadow = currentDepth > closestDepth ? 1.0 : 0.0;
+
+  return shadow;
+}
+
 vec3 calcDirectionLight(vec3 normal, vec3 viewDir) {
   vec3 lightDir = normalize(directionalLight.direction);
   vec3 halfDir = vec3(lightDir + viewDir);
@@ -80,7 +92,9 @@ vec3 calcDirectionLight(vec3 normal, vec3 viewDir) {
   vec3 ambient =
       directionalLight.ambient * vec3(texture(diffuseMap, inTexCoord));
 
-  return (specular + ambient + diffuse);
+  float shadow = calcShadow();
+  
+  return (ambient + ((diffuse + specular) * (1.0 - shadow)));
 }
 
 vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
@@ -133,7 +147,7 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   float diff = max(dot(fragLightDir, normal), 0.0);
   vec3 diffuse =
       spotLights[idx].diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
-  
+
   vec3 halfDir = normalize(-fragLightDir + viewDir);
 
   float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);

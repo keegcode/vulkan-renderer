@@ -3,8 +3,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include <assimp/material.h>
-#include <cstdint>
 #include <assimp/scene.h>
+#include <cstdint>
 #include <filesystem>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
@@ -38,15 +38,15 @@ struct PointLight {
   float linear;
   glm::vec3 diffuse;
   float quadratic;
-  alignas(16) glm::vec3 specular;
+  glm::vec3 specular;
   Buffer uniform;
 };
 
 struct DirectionalLight {
-  alignas(16) glm::vec3 direction;
-  alignas(16) glm::vec3 ambient;
-  alignas(16) glm::vec3 diffuse;
-  alignas(16) glm::vec3 specular;
+  glm::vec3 direction;
+  glm::vec3 ambient;
+  glm::vec3 diffuse;
+  glm::vec3 specular;
   Buffer uniform;
   glm::vec3 position;
 };
@@ -103,7 +103,6 @@ struct Texture {
   TextureType type;
   vk::Sampler sampler;
 };
-
 struct Asset {
   std::vector<uint32_t> meshes;
   std::filesystem::path path;
@@ -113,6 +112,8 @@ struct Projection {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 perspective;
+  glm::mat4 lightViewMatrix;
+  Buffer uniform;
 };
 
 struct Entity {
@@ -141,6 +142,16 @@ enum class GLTFMinFilter {
   LinearMipmapLinear = 9987
 };
 
+struct TextureCreateInfo {
+  std::filesystem::path path;
+  vk::SamplerCreateInfo samplerCreateInfo;
+  uint32_t textureIdx;
+  aiTextureMapMode mapModeU;
+  aiTextureMapMode mapModeV;
+  GLTFMagFilter magFilter;
+  GLTFMinFilter minFilter;
+};
+
 struct ImageData {
   int width, height;
   uint8_t* data;
@@ -148,9 +159,6 @@ struct ImageData {
 
 class Engine {
  public:
-  Pipeline pipeline;
-  Pipeline skyboxPipeline;
-
   Texture skybox;
   Texture reflectionCube;
 
@@ -167,6 +175,7 @@ class Engine {
   std::vector<SpotLight> spotLights;
 
   Camera camera;
+  Texture shadowMap;
 
   Descriptor entitiesDescriptor;
   Descriptor materialsDescriptor;
@@ -174,15 +183,14 @@ class Engine {
   Descriptor lightsDescriptor;
   Descriptor skyboxDescriptor;
   Descriptor reflectionCubeDescriptor;
+  Descriptor projectionDescriptor;
 
   bool isRunning = true;
 
-  Engine(const Display& display, const GPU& gpu);
-
-  void init(const EngineConfig& state);
+  Engine(const Display& display, const GPU& gpu, const EngineConfig& config);
 
   void drawFrame(float deltaTime);
-  void drawSkybox(const FrameData& data);
+  void drawSkybox(const SkyboxFrameData& data);
   void processInput(float deltaTime);
   void destroyTexture(const Texture& texture);
   void destroy();
@@ -193,14 +201,22 @@ class Engine {
 
   bool shouldBeResized = false;
 
-  void createPipeline();
   void loadStatic();
   void loadConfig(const EngineConfig& state);
 
   void loadAsset(const std::filesystem::path& path);
-  void processNode(Asset& asset, const aiScene* scene, const aiNode* node, std::vector<std::pair<uint32_t, std::string>>& tasks);
-  void loadMesh(Asset& asset, const aiScene* scene, const aiMesh* mesh, std::vector<std::pair<uint32_t, std::string>>& tasks);
-  void loadMaterial(Asset& asset, Mesh& mesh, const aiMaterial* assimpMaterial, std::vector<std::pair<uint32_t, std::string>>& tasks);
+  void processNode(Asset& asset,
+                   const aiScene* scene,
+                   const aiNode* node,
+                   std::vector<TextureCreateInfo>& tasks);
+  void loadMesh(Asset& asset,
+                const aiScene* scene,
+                const aiMesh* mesh,
+                std::vector<TextureCreateInfo>& tasks);
+  void loadMaterial(Asset& asset,
+                    Mesh& mesh,
+                    const aiMaterial* assimpMaterial,
+                    std::vector<TextureCreateInfo>& tasks);
   vk::SamplerCreateInfo extractGLTFSampler(const aiTextureMapMode u,
                                            const aiTextureMapMode v,
                                            const GLTFMagFilter mag,
@@ -211,5 +227,9 @@ class Engine {
   Image loadCubemap(const std::string& type);
   void loadSkybox();
   void loadReflectionCube();
-  void drawEntities(const FrameData& frameData);
+  void drawShadows(const ShadowPassFrameData& frameData);
+  void drawEntities(const MainPassFrameData& frameData);
+  void drawEntity(const uint32_t entityIdx, const uint32_t meshIdx);
+  void drawEntityShadow(const uint32_t entityIdx, const uint32_t meshIdx);
+  void drawMesh(const uint32_t meshIdx);
 };

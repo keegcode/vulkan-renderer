@@ -12,11 +12,8 @@
 
 int32_t main() {
   Display display{};
-  display.init();
-
   GPU gpu{display};
 
-  Engine engine{display, gpu};
   EngineConfig config{};
 
   glm::mat4 model{1.0f};
@@ -37,20 +34,20 @@ int32_t main() {
       "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
 
   config.directionalLight.direction = glm::vec3{-1.0, -1.0, 0.0};
-  config.directionalLight.position = glm::vec3{0.0, 100.0, 0.0};
+  config.directionalLight.position = glm::vec3{0.0, 300.0, 0.0};
   config.directionalLight.ambient = glm::vec3{0.1};
-  config.directionalLight.diffuse = glm::vec3{0.1};
-  config.directionalLight.specular = glm::vec3{0.1};
+  config.directionalLight.diffuse = glm::vec3{1.0};
+  config.directionalLight.specular = glm::vec3{1.0};
 
   PointLight pointLight{};
-  pointLight.position = glm::vec3{0.0, 5.0, 100.0};
-  pointLight.ambient = glm::vec3{0.5};
-  pointLight.diffuse = glm::vec3{1.0};
-  pointLight.specular = glm::vec3{1.0};
+  pointLight.position = glm::vec3{0.0, 10.0, 120.0};
+  pointLight.ambient = glm::vec3{0.1};
+  pointLight.diffuse = glm::vec3{0.5};
+  pointLight.specular = glm::vec3{0.4};
   pointLight.constant = 1.0;
-  pointLight.linear = 0.02;
-  pointLight.quadratic = 0.0032;
-  config.pointLights.push_back(pointLight);
+  pointLight.linear = 0.0;
+  pointLight.quadratic = 0.000016;
+  //config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0, 100.0, 5.0f};
@@ -58,12 +55,12 @@ int32_t main() {
   spotLight.cutOff = glm::cos(glm::radians(10.0f));
   spotLight.outerCutOff = glm::cos(glm::radians(30.0f));
   spotLight.ambient = glm::vec3{0.1};
-  spotLight.diffuse = glm::vec3{0.8};
-  spotLight.specular = glm::vec3{0.7};
+  spotLight.diffuse = glm::vec3{0.5};
+  spotLight.specular = glm::vec3{0.4};
   spotLight.constant = 1.0;
-  spotLight.linear = 0.0002;
-  spotLight.quadratic = 0.000016;
-  //config.spotLights.push_back(spotLight);
+  spotLight.linear = 0.0;
+  spotLight.quadratic = 0.0016;
+  // config.spotLights.push_back(spotLight);
 
   Entity sponza{};
   sponza.matrix = glm::translate(glm::mat4{1.0}, glm::vec3{0.0, 0.0f, 0.0f}) *
@@ -97,13 +94,26 @@ int32_t main() {
   config.entities.push_back(window);
   config.entities.push_back(window2);
 
-  engine.init(config);
+  Engine engine{display, gpu, config};
 
   float previousTicks = SDL_GetTicks();
+
+  float lastFrame = previousTicks;
+  uint32_t frames = 0;
+
   float deltaTime;
 
   while (engine.isRunning) {
     float currentTicks = SDL_GetTicks();
+
+    if (currentTicks - lastFrame >= 1000) {
+      std::string title =
+          std::string{"Vulkan"} + " (" + std::to_string(frames) + " FPS)";
+      SDL_SetWindowTitle(display.window, title.c_str());
+      lastFrame = currentTicks;
+      frames = 0;
+    }
+
     deltaTime = currentTicks - previousTicks;
     previousTicks = currentTicks;
 
@@ -111,6 +121,7 @@ int32_t main() {
     engine.drawFrame(deltaTime);
 
     SDL_Delay(1);
+    frames += 1;
   }
 
   engine.destroy();

@@ -8,19 +8,12 @@ layout(location = 3) in vec3 inNormals;
 layout(location = 0) out vec3 outTexCoord;
 
 layout(push_constant) uniform FrameData {
-  mat4 model;
-  mat4 view;
-  mat4 perspective;
-  vec3 camera;
-  uint pointLights;
-  uint spotLights;
+  mat4 matrix;
 }
 frameData;
 
 void main() {
-  vec4 pos = (frameData.perspective * mat4(mat3(frameData.view)) *
-              vec4(inPosition, 1.0))
-                 .xyww;
+  vec4 pos = (frameData.matrix * vec4(inPosition, 1.0)).xyww;
   outTexCoord = inPosition;
   gl_Position = pos;
 }

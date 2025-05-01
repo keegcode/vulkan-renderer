@@ -18,9 +18,10 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <glm/ext/matrix_clip_space.hpp>
 #include <glm/geometric.hpp>
-#include <glm/matrix.hpp>
 #include <glm/gtx/norm.hpp>
+#include <glm/matrix.hpp>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -36,30 +37,13 @@
 #include "gpu.hpp"
 #include "stb_image.h"
 
-
-Engine::Engine(const Display& d, const GPU& g) : display{d}, gpu{g} {};
-
-void Engine::init(const EngineConfig& config) {
-  gpu.createInstance();
-  gpu.pickPhysicalDevice();
-  gpu.pickDevice();
-  gpu.createSwapchain();
-  gpu.createAllocator();
-  gpu.createQueue();
-  gpu.createSyncPrimitives();
-  gpu.createCommandPool();
-  gpu.createCommandBuffer();
-  gpu.createDescriptorSetLayouts();
-
+Engine::Engine(const Display& d, const GPU& g, const EngineConfig& config)
+    : display{d}, gpu{g} {
   loadSkybox();
   loadReflectionCube();
   loadStatic();
   loadConfig(config);
-
-  gpu.createImages();
-  gpu.createViewportAndScissors();
-  createPipeline();
-}
+};
 
 void Engine::drawFrame(float deltaTime) {
   gpu.waitForFence();
@@ -77,44 +61,69 @@ void Engine::drawFrame(float deltaTime) {
   }
 
   gpu.resetFence();
+  gpu.commandBuffer.reset();
+  
+  gpu.beginRecordingCommands();
+  
+  gpu.beginShadowPass();
 
-  gpu.beginRendering(static_cast<uint32_t>(imageIndex));
-
+  projection.model = projection.model;
   projection.view =
       glm::lookAt(camera.position, camera.position + camera.front, camera.up);
+  projection.perspective = projection.perspective;
+  projection.lightViewMatrix = 
+    glm::ortho(-100.0f, 100.0f, -100.0f, 100.0f, 0.1f, 500.0f) * glm::lookAt(directionalLight.position, directionalLight.direction, glm::vec3{0.0, 1.0, 0.0}); 
 
-  FrameData frameData{};
-  frameData.model = projection.model;
-  frameData.view = projection.view;
-  frameData.perspective = projection.perspective;
-  frameData.spotLights = spotLights.size();
-  frameData.pointLights = pointLights.size();
-  frameData.cameraPos = camera.position;
+  vmaCopyMemoryToAllocation(gpu.allocator, &projection, projection.uniform.allocation, 0, offsetof(Projection, uniform));
 
-  drawEntities(frameData);
-  drawSkybox(frameData);
+  ShadowPassFrameData shadowPassFrameData{};
+  shadowPassFrameData.model = projection.model;
+  shadowPassFrameData.viewProjection = projection.lightViewMatrix;
 
-  gpu.endRendering();
+  drawShadows(shadowPassFrameData);
+
+  gpu.commandBuffer.endRendering();
+  gpu.beginMainPass(static_cast<uint32_t>(imageIndex));
+
+  MainPassFrameData mainPassFrameData{};
+  mainPassFrameData.spotLights = spotLights.size();
+  mainPassFrameData.pointLights = pointLights.size();
+  mainPassFrameData.cameraPos = camera.position;
+
+  drawEntities(mainPassFrameData);
+
+  SkyboxFrameData skyboxFrameData{};
+  skyboxFrameData.matrix = projection.perspective * glm::mat4{glm::mat3{projection.view}} * projection.model;
+
+  drawSkybox(skyboxFrameData);
+
+  gpu.commandBuffer.endRendering();
+  gpu.commandBuffer.end();
+
   gpu.submit(static_cast<uint32_t>(imageIndex));
 };
 
-void Engine::drawSkybox(const FrameData& frameData) {
+void Engine::drawSkybox(const SkyboxFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                 skyboxPipeline.pipeline);
+                                 gpu.skyboxPipeline.pipeline);
 
   gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
   gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
 
+  gpu.commandBuffer.setDepthWriteEnable(0);
+
   gpu.commandBuffer.pushConstants(
-      skyboxPipeline.layout,
+      gpu.skyboxPipeline.layout,
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-      sizeof(FrameData), &frameData);
+      sizeof(SkyboxFrameData), &frameData);
 
   std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
                     vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(skyboxDescriptor.address.deviceAddress)};
+          .setAddress(skyboxDescriptor.address.deviceAddress),
+
+  };
 
   std::array<vk::DeviceSize, 1> offsets{0};
   std::vector<vk::DeviceSize> descriptorOffsets{0};
@@ -131,7 +140,7 @@ void Engine::drawSkybox(const FrameData& frameData) {
                                     vk::IndexType::eUint32);
 
   gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-      vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 1,
+      vk::PipelineBindPoint::eGraphics, gpu.skyboxPipeline.layout, 0, 1,
       descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
 
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
@@ -216,10 +225,13 @@ void Engine::destroy() {
   gpu.destroyDescriptor(texturesDescriptor);
   gpu.destroyDescriptor(skyboxDescriptor);
   gpu.destroyDescriptor(reflectionCubeDescriptor);
+  gpu.destroyDescriptor(projectionDescriptor);
 
   for (Texture& texture : textures) {
     destroyTexture(texture);
   }
+
+  gpu.destroySampler(shadowMap.sampler);
 
   destroyTexture(skybox);
   destroyTexture(reflectionCube);
@@ -244,41 +256,14 @@ void Engine::destroy() {
   for (Entity& e : entities) {
     gpu.destroyBuffer(e.uniform);
   }
-
+  
+  gpu.destroyBuffer(projection.uniform);
   gpu.destroyBuffer(directionalLight.uniform);
-
-  gpu.destroyPipeline(pipeline);
-  gpu.destroyPipeline(skyboxPipeline);
 
   gpu.destroySwapchainResources();
 
   gpu.destroy();
   display.destroy();
-};
-
-void Engine::createPipeline() {
-  std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      gpu.textureLayout, gpu.uniformLayout, gpu.lightLayout,
-      gpu.uniformLayout, gpu.skyboxLayout,
-  };
-
-  pipeline = gpu.createEntityPipeline(
-      gpu.loadShader("./shaders/shader.vert.glsl.spv",
-                     vk::ShaderStageFlagBits::eVertex),
-      gpu.loadShader("./shaders/shader.frag.glsl.spv",
-                     vk::ShaderStageFlagBits::eFragment),
-      descriptorSetLayouts);
-
-  descriptorSetLayouts = {
-      gpu.skyboxLayout,
-  };
-
-  skyboxPipeline = gpu.createSkyboxPipeline(
-      gpu.loadShader("./shaders/cubemap.vert.glsl.spv",
-                     vk::ShaderStageFlagBits::eVertex),
-      gpu.loadShader("./shaders/cubemap.frag.glsl.spv",
-                     vk::ShaderStageFlagBits::eFragment),
-      descriptorSetLayouts);
 };
 
 Image Engine::loadImage(const std::filesystem::path& path) {
@@ -300,6 +285,21 @@ void Engine::loadConfig(const EngineConfig& config) {
   std::vector<glm::vec3> lightPositions{};
 
   projection = config.projection;
+
+  projection.uniform = 
+      gpu.createBuffer(&projection, offsetof(Projection, uniform),
+                       vk::BufferUsageFlagBits::eUniformBuffer |
+                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
+  projectionDescriptor = gpu.createUniformDescriptor(
+      offsetof(Projection, uniform), gpu.uniformLayout);
+
+  gpu.setDescriptorUniformBuffer(
+    projectionDescriptor, 
+    projection.uniform, 
+    0, 
+    0
+  );
 
   lightsDescriptor = gpu.createUniformDescriptor(
       config.spotLights.size() + pointLights.size() + 1, gpu.lightLayout);
@@ -347,16 +347,16 @@ void Engine::loadConfig(const EngineConfig& config) {
     loadAsset(path);
   }
 
+  for (size_t i = 0; i < config.entities.size(); i++) {
+    entities.push_back(config.entities[i]);
+  }
+
   for (size_t i = 0; i < lightPositions.size(); i++) {
     Entity entity{};
     entity.matrix = glm::scale(
         glm::translate(glm::mat4{1.0f}, lightPositions[i]), glm::vec3{1.0});
     entity.assetIdx = 0;
     entities.push_back(entity);
-  }
-
-  for (size_t i = 0; i < config.entities.size(); i++) {
-    entities.push_back(config.entities[i]);
   }
 
   entitiesDescriptor =
@@ -395,6 +395,9 @@ void Engine::loadConfig(const EngineConfig& config) {
 
     gpu.setDescriptorImage(texturesDescriptor, specularMap.image,
                            specularMap.sampler, i, 1);
+
+    gpu.setDescriptorImage(texturesDescriptor, shadowMap.image,
+                           shadowMap.sampler, i, 2);
   }
 }
 
@@ -417,6 +420,9 @@ void Engine::loadStatic() {
   texture.image = loadImage("./textures/default.png");
   texture.type = TextureType::BaseColor;
   texture.sampler = gpu.createSampler(samplerCreateInfo);
+
+  shadowMap.image = gpu.shadowMapImage;
+  shadowMap.sampler = gpu.createSampler(samplerCreateInfo);
 
   textures.push_back(texture);
 
@@ -450,19 +456,18 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   Asset asset{};
   asset.path = path;
 
-  std::vector<std::pair<uint32_t, std::string>> tasks;
+  std::vector<TextureCreateInfo> createInfos;
   std::unordered_map<std::string, ImageData> cache;
 
-  processNode(asset, scene, scene->mRootNode, tasks);
-  
+  processNode(asset, scene, scene->mRootNode, createInfos);
+
   std::vector<std::thread> threads;
 
-  for (auto& [textureIdx, path] : tasks) {
-    std::string p = path;
-    threads.push_back(std::thread([&, p](){
+  for (const TextureCreateInfo& createInfo : createInfos) {
+    std::string p = createInfo.path;
+    threads.push_back(std::thread([&, p]() {
       int height, width;
-      uint8_t* data =
-          stbi_load(p.c_str(), &width, &height, 0, STBI_rgb_alpha);
+      uint8_t* data = stbi_load(p.c_str(), &width, &height, 0, STBI_rgb_alpha);
 
       assert(data != nullptr);
 
@@ -470,7 +475,7 @@ void Engine::loadAsset(const std::filesystem::path& path) {
       image.data = data;
       image.height = height;
       image.width = width;
-      
+
       cache[p.c_str()] = image;
     }));
   }
@@ -479,9 +484,15 @@ void Engine::loadAsset(const std::filesystem::path& path) {
     t.join();
   }
 
-  for (auto& [textureIdx, path] : tasks) {
-    ImageData image = cache[path];
-    textures[textureIdx].image = gpu.createTexture2D(image.data, vk::Extent2D{}.setWidth(image.width).setHeight(image.height));
+  for (const TextureCreateInfo& createInfo : createInfos) {
+    ImageData image = cache[createInfo.path];
+    textures[createInfo.textureIdx].image = gpu.createTexture2D(
+        image.data,
+        vk::Extent2D{}.setWidth(image.width).setHeight(image.height));
+    textures[createInfo.textureIdx].sampler =
+        gpu.createSampler(extractGLTFSampler(
+            createInfo.mapModeU, createInfo.mapModeV, createInfo.magFilter,
+            createInfo.minFilter, textures[createInfo.textureIdx].image));
   }
 
   importer.FreeScene();
@@ -490,7 +501,8 @@ void Engine::loadAsset(const std::filesystem::path& path) {
 
 void Engine::loadMesh(Asset& asset,
                       const aiScene* scene,
-                      const aiMesh* assimpMesh, std::vector<std::pair<uint32_t, std::string>>& tasks) {
+                      const aiMesh* assimpMesh,
+                      std::vector<TextureCreateInfo>& createInfos) {
   Mesh mesh{};
 
   std::vector<Vertex> vertices;
@@ -542,7 +554,8 @@ void Engine::loadMesh(Asset& asset,
 
   mesh.indicesCount = indices.size();
 
-  loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex], tasks);
+  loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex],
+               createInfos);
 
   asset.meshes.push_back(meshes.size());
   meshes.push_back(mesh);
@@ -550,7 +563,8 @@ void Engine::loadMesh(Asset& asset,
 
 void Engine::loadMaterial(Asset& asset,
                           Mesh& mesh,
-                          const aiMaterial* assimpMaterial, std::vector<std::pair<uint32_t, std::string>>& tasks) {
+                          const aiMaterial* assimpMaterial,
+                          std::vector<TextureCreateInfo>& createInfos) {
   Material material{};
 
   aiColor3D emissiveColor{0.0, 0.0, 0.0};
@@ -575,12 +589,14 @@ void Engine::loadMaterial(Asset& asset,
 
   float shininess = 32.0;
   if (assimpMaterial->Get(AI_MATKEY_SHININESS, shininess) == aiReturn_SUCCESS) {
-    material.shininess = std::clamp(shininess, 1.0f, 32.0f);
+    material.shininess = std::clamp(shininess, 4.0f, 32.0f);
   };
 
-  int twoSided = 0;
+  bool twoSided = false;
   if (assimpMaterial->Get(AI_MATKEY_TWOSIDED, twoSided) == aiReturn_SUCCESS) {
-    material.cullMode = vk::CullModeFlagBits::eNone;
+    if (twoSided) {
+      material.cullMode = vk::CullModeFlagBits::eNone;
+    }
   };
 
   aiString alphaModeStr;
@@ -589,7 +605,11 @@ void Engine::loadMaterial(Asset& asset,
     std::string mode = alphaModeStr.C_Str();
     if (mode == "MASK") {
       material.alphaMode = AlphaMode::Mask;
-      material.alphaCutoff = 0.5f;
+      float alphaCutoff = 0.5f;
+      if (assimpMaterial->Get("$mat.gltf.alphaCutoff", 0, 0, alphaCutoff) ==
+          aiReturn_SUCCESS) {
+        material.alphaCutoff = alphaCutoff;
+      }
     }
   }
 
@@ -617,8 +637,6 @@ void Engine::loadMaterial(Asset& asset,
     diffuseMap.type = TextureType::BaseColor;
     material.diffuseTextureIdx = textures.size();
 
-    tasks.push_back({material.diffuseTextureIdx, asset.path.parent_path().append(diffuseMapPath.C_Str())});
-
     aiTextureMapMode mapModeU, mapModeV;
     GLTFMinFilter min;
     GLTFMagFilter mag;
@@ -632,8 +650,10 @@ void Engine::loadMaterial(Asset& asset,
     assimpMaterial->Get(
         AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_BASE_COLOR, 0), min);
 
-    diffuseMap.sampler = gpu.createSampler(
-        extractGLTFSampler(mapModeU, mapModeV, mag, min, diffuseMap.image));
+    createInfos.push_back(
+        {asset.path.parent_path().append(diffuseMapPath.C_Str()),
+         extractGLTFSampler(mapModeU, mapModeV, mag, min, diffuseMap.image),
+         material.diffuseTextureIdx, mapModeU, mapModeV, mag, min});
 
     textures.push_back(diffuseMap);
   }
@@ -644,11 +664,7 @@ void Engine::loadMaterial(Asset& asset,
                                &specularMapPath);
     Texture specularMap{};
     specularMap.type = TextureType::Specular;
-    specularMap.image =
-        loadImage(asset.path.parent_path().append(specularMapPath.C_Str()));
     material.specularTextureIdx = textures.size();
-
-    tasks.push_back({material.specularTextureIdx, asset.path.parent_path().append(specularMapPath.C_Str())});
 
     aiTextureMapMode mapModeU, mapModeV;
     GLTFMinFilter min;
@@ -663,8 +679,10 @@ void Engine::loadMaterial(Asset& asset,
     assimpMaterial->Get(
         AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_BASE_COLOR, 0), mag);
 
-    specularMap.sampler = gpu.createSampler(
-        extractGLTFSampler(mapModeU, mapModeV, mag, min, specularMap.image));
+    createInfos.push_back(
+        {asset.path.parent_path().append(specularMapPath.C_Str()),
+         extractGLTFSampler(mapModeU, mapModeV, mag, min, specularMap.image),
+         material.specularTextureIdx, mapModeU, mapModeV, mag, min});
 
     textures.push_back(specularMap);
   }
@@ -675,13 +693,14 @@ void Engine::loadMaterial(Asset& asset,
 
 void Engine::processNode(Asset& asset,
                          const aiScene* scene,
-                         const aiNode* node, std::vector<std::pair<uint32_t, std::string>>& tasks) {
+                         const aiNode* node,
+                         std::vector<TextureCreateInfo>& createInfos) {
   for (size_t i = 0; i < node->mNumMeshes; i++) {
-    loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]], tasks);
+    loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]], createInfos);
   }
 
   for (size_t i = 0; i < node->mNumChildren; i++) {
-    processNode(asset, scene, node->mChildren[i], tasks);
+    processNode(asset, scene, node->mChildren[i], createInfos);
   }
 };
 
@@ -692,11 +711,11 @@ Image Engine::loadCubemap(const std::string& type) {
   std::thread threads[6];
 
   for (size_t i = 0; i < 6; i++) {
-    threads[i] = std::thread{[&, i](){
+    threads[i] = std::thread{[&, i]() {
       std::string file = CUBEMAP_FILES[i];
-      uint8_t* data =
-          stbi_load(std::string{"./textures/" + type + "/" + file + ".png"}.c_str(),
-                    &width, &height, nullptr, STBI_rgb_alpha);
+      uint8_t* data = stbi_load(
+          std::string{"./textures/" + type + "/" + file + ".png"}.c_str(),
+          &width, &height, nullptr, STBI_rgb_alpha);
       assert(data != nullptr);
       images[i] = data;
     }};
@@ -767,12 +786,13 @@ void Engine::loadReflectionCube() {
 
   reflectionCube = tex;
   reflectionCubeDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
-  gpu.setDescriptorImage(reflectionCubeDescriptor, tex.image, tex.sampler, 0, 0);
+  gpu.setDescriptorImage(reflectionCubeDescriptor, tex.image, tex.sampler, 0,
+                         0);
 }
 
-void Engine::drawEntities(const FrameData& frameData) {
+void Engine::drawShadows(const ShadowPassFrameData& frameData) { 
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                 pipeline.pipeline);
+                                 gpu.shadowsPipeline.pipeline);
 
   std::vector<vk::DeviceSize> offsets = {0};
 
@@ -780,9 +800,33 @@ void Engine::drawEntities(const FrameData& frameData) {
   gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
 
   gpu.commandBuffer.pushConstants(
-      pipeline.layout,
+      gpu.shadowsPipeline.layout,
+      vk::ShaderStageFlagBits::eVertex, 0,
+      sizeof(ShadowPassFrameData), &frameData);
+
+  for (size_t i = 0; i < entities.size(); i++) {
+    Entity& entity = entities[i];
+    Asset& asset = assets[entity.assetIdx];
+    for (const uint32_t meshIdx : asset.meshes) {
+      drawEntityShadow(i, meshIdx);
+    }
+  }
+}
+
+void Engine::drawEntities(const MainPassFrameData& frameData) {
+  gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                 gpu.entitiesPipeline.pipeline);
+
+  std::vector<vk::DeviceSize> offsets = {0};
+
+  gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
+  gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
+  gpu.commandBuffer.setDepthWriteEnable(1);
+
+  gpu.commandBuffer.pushConstants(
+      gpu.entitiesPipeline.layout,
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-      sizeof(FrameData), &frameData);
+      sizeof(MainPassFrameData), &frameData);
 
   std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
       vk::DescriptorBufferBindingInfoEXT{}
@@ -801,7 +845,11 @@ void Engine::drawEntities(const FrameData& frameData) {
       vk::DescriptorBufferBindingInfoEXT{}
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
                     vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
-          .setAddress(reflectionCubeDescriptor.address.deviceAddress)};
+          .setAddress(reflectionCubeDescriptor.address.deviceAddress),
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(projectionDescriptor.address.deviceAddress),
+  };
 
   gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
 
@@ -816,7 +864,8 @@ void Engine::drawEntities(const FrameData& frameData) {
       Material& material = materials[mesh.materialIdx];
 
       if (material.alphaMode != AlphaMode::Opaque) {
-        uint32_t distance = glm::length2(camera.position - glm::vec3(entity.matrix[3]));
+        uint32_t distance =
+            glm::length2(camera.position - glm::vec3(entity.matrix[3]));
         transparent.push_back({static_cast<uint32_t>(i), meshIdx, distance});
       } else {
         opaque.push_back({static_cast<uint32_t>(i), meshIdx});
@@ -826,66 +875,21 @@ void Engine::drawEntities(const FrameData& frameData) {
 
   vk::Bool32 enables[1] = {false};
   gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
-  
+
   for (const auto& [entityIdx, meshIdx] : opaque) {
-    Mesh& mesh = meshes[meshIdx];
-    Material& material = materials[mesh.materialIdx];
-
-    gpu.commandBuffer.setCullMode(material.cullMode);
-
-    gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
-                                        offsets.data());
-
-    gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
-                                      vk::IndexType::eUint32);
-
-    std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
-
-    std::vector<vk::DeviceSize> descriptorOffsets{
-        texturesDescriptor.size * mesh.materialIdx,
-        materialsDescriptor.size * mesh.materialIdx, 0,
-        entitiesDescriptor.size * entityIdx, 0};
-
-    gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 5,
-        descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
-
-    gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+    drawEntity(entityIdx, meshIdx);
   }
 
   enables[0] = true;
   gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
 
-  std::sort(transparent.begin(), transparent.end(), [](const std::array<uint32_t, 3>& a, const std::array<uint32_t, 3>& b) {
-    return b[2] - a[2];
-  });
+  std::sort(transparent.begin(), transparent.end(),
+            [](const std::array<uint32_t, 3>& a,
+               const std::array<uint32_t, 3>& b) { return a[2] > b[2]; });
 
-  for (const auto& [entityIdx, meshIdx, dist] : transparent) {
-    Mesh& mesh = meshes[meshIdx];
-    Material& material = materials[mesh.materialIdx];
-
-    gpu.commandBuffer.setCullMode(material.cullMode);
-
-    gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
-                                        offsets.data());
-
-    gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
-                                      vk::IndexType::eUint32);
-
-    std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4};
-
-    std::vector<vk::DeviceSize> descriptorOffsets{
-        texturesDescriptor.size * mesh.materialIdx,
-        materialsDescriptor.size * mesh.materialIdx, 0,
-        entitiesDescriptor.size * entityIdx, 0};
-
-    gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-        vk::PipelineBindPoint::eGraphics, pipeline.layout, 0, 5,
-        descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
-
-    gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+  for (const auto& object : transparent) {
+    drawEntity(object[0], object[1]);
   }
-
 }
 
 vk::SamplerCreateInfo Engine::extractGLTFSampler(const aiTextureMapMode u,
@@ -897,6 +901,10 @@ vk::SamplerCreateInfo Engine::extractGLTFSampler(const aiTextureMapMode u,
       vk::SamplerCreateInfo{}
           .setMaxLod(image.mipLevels)
           .setMinLod(0.0f)
+          .setMipLodBias(0.0f)
+          .setMagFilter(vk::Filter::eLinear)
+          .setMinFilter(vk::Filter::eLinear)
+          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
           .setAddressModeW(vk::SamplerAddressMode::eRepeat)
           .setAnisotropyEnable(1)
           .setMaxAnisotropy(
@@ -976,4 +984,68 @@ vk::SamplerCreateInfo Engine::extractGLTFSampler(const aiTextureMapMode u,
   }
 
   return samplerCreateInfo;
+}
+
+void Engine::drawMesh(const uint32_t meshIdx) {
+  vk::DeviceSize offsets[1] = {0};
+
+  Mesh& mesh = meshes[meshIdx];
+
+  gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
+  gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                    vk::IndexType::eUint32);
+
+  gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+}
+
+void Engine::drawEntityShadow(const uint32_t entityIdx, const uint32_t meshIdx) {
+  vk::DeviceSize offsets[1] = {0};
+  Mesh& mesh = meshes[meshIdx];
+
+  std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
+      vk::DescriptorBufferBindingInfoEXT{}
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setAddress(entitiesDescriptor.address.deviceAddress)};
+
+  gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
+
+  std::vector<uint32_t> descriptorIndices{0};
+  std::vector<vk::DeviceSize> descriptorOffsets{entitiesDescriptor.size * entityIdx};
+
+  gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
+  gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                    vk::IndexType::eUint32);
+
+  gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
+      vk::PipelineBindPoint::eGraphics, gpu.shadowsPipeline.layout, 0, 1,
+      descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
+
+  gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
+}
+
+void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
+  vk::DeviceSize offsets[1] = {0};
+
+  Mesh& mesh = meshes[meshIdx];
+  Material& material = materials[mesh.materialIdx];
+
+  gpu.commandBuffer.setCullMode(material.cullMode);
+
+  gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
+
+  gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
+                                    vk::IndexType::eUint32);
+
+  std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4, 5};
+
+  std::vector<vk::DeviceSize> descriptorOffsets{
+      texturesDescriptor.size * mesh.materialIdx,
+      materialsDescriptor.size * mesh.materialIdx, 0,
+      entitiesDescriptor.size * entityIdx, 0, 0};
+
+  gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
+      vk::PipelineBindPoint::eGraphics, gpu.entitiesPipeline.layout, 0, 6,
+      descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
+
+  gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }

@@ -10,9 +10,12 @@ vk::DeviceSize utils::getAlignedSize(const vk::DeviceSize size,
   return (size + alignment - 1) & ~(alignment - 1);
 }
 
-std::vector<char> utils::readFile(const std::string_view path) {
-  std::ifstream file{path.data(),
-                     std::ios::in | std::ios::binary | std::ios::ate};
+uint32_t utils::getMipLevels(const uint32_t h, const uint32_t w) {
+  return static_cast<uint32_t>(std::floor(log2(std::max(w, h)) + 1));
+}
+
+std::vector<char> utils::readFile(const std::filesystem::path& path) {
+  std::ifstream file{path, std::ios::in | std::ios::binary | std::ios::ate};
 
   assert(file.is_open());
 

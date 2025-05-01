@@ -16,13 +16,19 @@ void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
   }
 }
 
-struct FrameData {
+struct ShadowPassFrameData {
+  glm::mat4 viewProjection;
   glm::mat4 model;
-  glm::mat4 view;
-  glm::mat4 perspective;
-  alignas(16) glm::vec3 cameraPos;
+};
+
+struct MainPassFrameData {
+  glm::vec3 cameraPos;
   uint32_t pointLights;
   uint32_t spotLights;
+};
+
+struct SkyboxFrameData {
+  glm::mat4 matrix;
 };
 
 struct Vertex {
@@ -84,6 +90,10 @@ class GPU {
  public:
   Display display;
 
+  Pipeline entitiesPipeline;
+  Pipeline skyboxPipeline;
+  Pipeline shadowsPipeline;
+
   vkb::Instance instance;
   vk::detail::DispatchLoaderDynamic dld;
 
@@ -122,6 +132,7 @@ class GPU {
   vk::DescriptorSetLayout skyboxLayout;
 
   Image depthImage;
+  Image shadowMapImage;
   Image multisampleImage;
 
   vk::Viewport viewport;
@@ -142,6 +153,7 @@ class GPU {
   void createCommandBuffer();
   void createDescriptorSetLayouts();
   void createViewportAndScissors();
+  void createPipelines();
 
   Descriptor createStorageBufferDescriptor(
       const vk::DescriptorSetLayout& layout) const;
@@ -190,11 +202,11 @@ class GPU {
   void endSingleSubmitCommand(
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
+  Image createDepthImage(const vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1);
   Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
                              const vk::Extent2D& extent);
   void createImages();
-  void createDepthImage();
   void createMultiSampleImage();
   void generateMipmaps(const Image& image);
 
@@ -206,20 +218,19 @@ class GPU {
   Shader loadShader(const std::string_view path,
                     vk::ShaderStageFlagBits stage) const;
 
-  Pipeline createEntityPipeline(
+  Pipeline createPipeline(
       const Shader& vertexShader,
       const Shader& fragmentShader,
-      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const;
+      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts, const uint32_t pushConstantSize) const;
 
-  Pipeline createSkyboxPipeline(
-      const Shader& vertexShader,
-      const Shader& fragmentShader,
-      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const;
+  void createShadowPipeline();
 
   void waitForFence() const;
   int32_t acquireNextImage() const;
   void resetFence() const;
-  void beginRendering(uint32_t imageIndex);
+  void beginRecordingCommands();
+  void beginMainPass(const uint32_t imageIndex);
+  void beginShadowPass();
   void endRendering() const;
   void submit(const uint32_t imageIndex);
 

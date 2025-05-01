@@ -9,7 +9,21 @@
 #include "stb_image.h"
 #include "utils.hpp"
 
-GPU::GPU(const Display& d) : display{d} {};
+GPU::GPU(const Display& d) : display{d} {
+  createInstance();
+  pickPhysicalDevice();
+  pickDevice();
+  createSwapchain();
+  createAllocator();
+  createQueue();
+  createSyncPrimitives();
+  createCommandPool();
+  createCommandBuffer();
+  createDescriptorSetLayouts();
+  createImages();
+  createViewportAndScissors();
+  createPipelines();
+};
 
 void GPU::createInstance() {
   vkb::Result<vkb::Instance> instanceResult =
@@ -34,6 +48,10 @@ void GPU::destroy() const {
   device.destroyDescriptorSetLayout(storageBufferLayout);
   device.destroyDescriptorSetLayout(skyboxLayout);
 
+  destroyPipeline(entitiesPipeline);
+  destroyPipeline(skyboxPipeline);
+  destroyPipeline(shadowsPipeline);
+
   device.destroyCommandPool(commandPool);
 
   device.destroyFence(fence);
@@ -54,7 +72,9 @@ void GPU::pickPhysicalDevice() {
 
   std::vector<const char*> extensions = {
       vk::EXTDescriptorBufferExtensionName,
-      vk::EXTExtendedDynamicState3ExtensionName};
+      vk::EXTExtendedDynamicState3ExtensionName,
+      vk::EXTScalarBlockLayoutExtensionName,
+  };
 
   vk::PhysicalDeviceFeatures features =
       vk::PhysicalDeviceFeatures{}.setSampleRateShading(1).setSamplerAnisotropy(
@@ -82,6 +102,9 @@ void GPU::pickPhysicalDevice() {
           .add_required_extension_features(
               vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT{}
                   .setExtendedDynamicState3ColorBlendEnable(1))
+          .add_required_extension_features(
+              vk::PhysicalDeviceScalarBlockLayoutFeatures{}
+                  .setScalarBlockLayout(1))
           .select();
 
   VKB_ASSERT(physicalDeviceResult);
@@ -113,10 +136,15 @@ void GPU::createSwapchain() {
 
   vk::Extent2D extent = vk::Extent2D{}.setWidth(w).setHeight(h);
 
+  vk::SurfaceFormatKHR surfaceFormat{};
+  surfaceFormat.format = vk::Format::eB8G8R8A8Srgb;
+  surfaceFormat.colorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
+
   vkb::SwapchainBuilder builder =
       vkb::SwapchainBuilder{vkbDevice}
           .set_old_swapchain(swapchain)
           .set_desired_extent(extent.width, extent.height)
+          .set_desired_format(surfaceFormat)
           .set_required_min_image_count(capabilities.minImageCount)
           .set_desired_present_mode(VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR);
 
@@ -210,6 +238,7 @@ void GPU::createDescriptorSetLayouts() {
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
+
   vk::DescriptorSetLayoutBinding uniformBinding =
       vk::DescriptorSetLayoutBinding{}
           .setBinding(0)
@@ -223,8 +252,11 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutBinding specularMapBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1);
 
+  vk::DescriptorSetLayoutBinding shadowMapBinding =
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(2);
+
   std::vector<vk::DescriptorSetLayoutBinding> textureBindings{
-      diffuseMapBidning, specularMapBinding};
+      diffuseMapBidning, specularMapBinding, shadowMapBinding};
 
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
@@ -633,7 +665,7 @@ void GPU::endSingleSubmitCommand(
   device.freeCommandBuffers(commandPool, 1, &singleSubmitBuffer);
 }
 
-void GPU::createDepthImage() {
+Image GPU::createDepthImage(const vk::SampleCountFlagBits samples) {
   Image image{};
   image.extent = vk::Extent3D{vkbSwapchain.extent}.setDepth(1);
 
@@ -643,7 +675,7 @@ void GPU::createDepthImage() {
           .setFormat(vk::Format::eD32Sfloat)
           .setMipLevels(1)
           .setArrayLayers(1)
-          .setSamples(sampleCount)
+          .setSamples(samples)
           .setTiling(vk::ImageTiling::eOptimal)
           .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment)
           .setSharingMode(vk::SharingMode::eExclusive)
@@ -678,14 +710,14 @@ void GPU::createDepthImage() {
           .setSubresourceRange(imageSubresourceRange);
 
   image.view = device.createImageView(imageViewCreateInfo, nullptr);
-  depthImage = image;
+
+  return image;
 }
 
 Image GPU::createTexture2D(const uint8_t* data, const vk::Extent2D& extent) {
   Image image{};
   image.extent = vk::Extent3D{extent}.setDepth(1);
-  image.mipLevels = static_cast<uint32_t>(
-      std::floor(log2(std::max(extent.width, extent.height)) + 1));
+  image.mipLevels = utils::getMipLevels(extent.height, extent.width);
 
   VkImageCreateInfo imageCreateInfo =
       vk::ImageCreateInfo{}
@@ -982,8 +1014,7 @@ void GPU::rebuiltSwapchain() {
   vkb::Swapchain old = vkbSwapchain;
 
   createSwapchain();
-  createDepthImage();
-  createMultiSampleImage();
+  createImages();
   createViewportAndScissors();
 
   vkb::destroy_swapchain(old);
@@ -996,6 +1027,9 @@ void GPU::destroySwapchainResources() {
 
   device.destroyImageView(depthImage.view);
   vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
+
+  device.destroyImageView(shadowMapImage.view);
+  vmaDestroyImage(allocator, shadowMapImage.image, shadowMapImage.allocation);
 
   device.destroyImageView(multisampleImage.view);
   vmaDestroyImage(allocator, multisampleImage.image,
@@ -1023,10 +1057,12 @@ void GPU::destroyShader(const Shader& shader) const {
   device.destroyShaderModule(shader.module);
 }
 
-Pipeline GPU::createEntityPipeline(
+Pipeline GPU::createPipeline(
     const Shader& vertexShader,
     const Shader& fragmentShader,
-    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const {
+    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts, const uint32_t pushConstantSize) const {
+  assert(pushConstantSize <= physicalDeviceProperties.properties.limits.maxPushConstantsSize);
+
   Pipeline pipeline{};
 
   std::vector<vk::VertexInputBindingDescription> inputBindings{
@@ -1101,7 +1137,7 @@ Pipeline GPU::createEntityPipeline(
   vk::PushConstantRange pushConstantRange =
       vk::PushConstantRange{}
           .setOffset(0)
-          .setSize(sizeof(FrameData))
+          .setSize(pushConstantSize)
           .setStageFlags(vk::ShaderStageFlagBits::eVertex |
                          vk::ShaderStageFlagBits::eFragment);
 
@@ -1142,7 +1178,6 @@ Pipeline GPU::createEntityPipeline(
   vk::PipelineDepthStencilStateCreateInfo depthStencilState =
       vk::PipelineDepthStencilStateCreateInfo{}
           .setDepthTestEnable(1)
-          .setDepthWriteEnable(1)
           .setStencilTestEnable(0)
           .setDepthBoundsTestEnable(0)
           .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
@@ -1153,7 +1188,7 @@ Pipeline GPU::createEntityPipeline(
               vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
               vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA)
           .setSrcColorBlendFactor(vk::BlendFactor::eOne)
-          .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcColor)
+          .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
           .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
           .setDstAlphaBlendFactor(vk::BlendFactor::eZero);
 
@@ -1162,199 +1197,15 @@ Pipeline GPU::createEntityPipeline(
           .setAttachmentCount(1)
           .setAttachments(colorBlendAttachmentState);
 
-  vk::DynamicState dynamicStates[4] = {
+  std::vector<vk::DynamicState> dynamicStates{
       vk::DynamicState::eViewport, vk::DynamicState::eScissor,
-      vk::DynamicState::eCullMode, vk::DynamicState::eColorBlendEnableEXT};
+      vk::DynamicState::eCullMode, vk::DynamicState::eColorBlendEnableEXT,
+      vk::DynamicState::eDepthWriteEnable};
 
   vk::PipelineDynamicStateCreateInfo dynamicState =
       vk::PipelineDynamicStateCreateInfo{}
           .setDynamicStates(dynamicStates)
-          .setDynamicStateCount(4);
-
-  vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo =
-      vk::PipelineLayoutCreateInfo{}
-          .setPushConstantRanges(pushConstantRange)
-          .setPushConstantRangeCount(1)
-          .setSetLayouts(descriptorSetLayouts)
-          .setSetLayoutCount(descriptorSetLayouts.size());
-
-  pipeline.layout =
-      device.createPipelineLayout(pipelineLayoutCreateInfo, nullptr);
-
-  vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo =
-      vk::GraphicsPipelineCreateInfo{}
-          .setPNext(&pipelineRenderingCreateInfo)
-          .setStages(stages)
-          .setStageCount(stages.size())
-          .setPVertexInputState(&vertexInputState)
-          .setPInputAssemblyState(&inputAssemblyState)
-          .setPTessellationState(VK_NULL_HANDLE)
-          .setPViewportState(&viewportState)
-          .setPRasterizationState(&rasterizationState)
-          .setPMultisampleState(&multisampleState)
-          .setPDepthStencilState(&depthStencilState)
-          .setPColorBlendState(&colorBlendState)
-          .setPDynamicState(&dynamicState)
-          .setRenderPass(VK_NULL_HANDLE)
-          .setLayout(pipeline.layout)
-          .setFlags(vk::PipelineCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::ResultValue<vk::Pipeline> pipelineResult =
-      device.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
-
-  assert(pipelineResult.result == vk::Result::eSuccess);
-
-  pipeline.vertexShader = vertexShader;
-  pipeline.fragmentShader = fragmentShader;
-  pipeline.pipeline = pipelineResult.value;
-
-  return pipeline;
-}
-
-Pipeline GPU::createSkyboxPipeline(
-    const Shader& vertexShader,
-    const Shader& fragmentShader,
-    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts) const {
-  Pipeline pipeline{};
-
-  std::vector<vk::VertexInputBindingDescription> inputBindings{
-      vk::VertexInputBindingDescription{}
-          .setStride(sizeof(Vertex))
-          .setInputRate(vk::VertexInputRate::eVertex)
-          .setBinding(0)};
-
-  vk::VertexInputAttributeDescription vertexPositionAttributeDescription =
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(0)
-          .setOffset(offsetof(Vertex, position))
-          .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  vk::VertexInputAttributeDescription vertexColorAttributeDescription =
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(1)
-          .setOffset(offsetof(Vertex, clr))
-          .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  vk::VertexInputAttributeDescription vertexTextureCoordAttributeDescription =
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(2)
-          .setOffset(offsetof(Vertex, uv))
-          .setFormat(vk::Format::eR32G32Sfloat);
-
-  vk::VertexInputAttributeDescription vertexNormalsAttributeDescription =
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(3)
-          .setOffset(offsetof(Vertex, normals))
-          .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
-      vertexPositionAttributeDescription,
-      vertexColorAttributeDescription,
-      vertexTextureCoordAttributeDescription,
-      vertexNormalsAttributeDescription,
-  };
-
-  vk::PipelineShaderStageCreateInfo vertexShaderStage =
-      vk::PipelineShaderStageCreateInfo{}
-          .setStage(vk::ShaderStageFlagBits::eVertex)
-          .setModule(vertexShader.module)
-          .setPName("main")
-          .setPSpecializationInfo(nullptr);
-
-  vk::PipelineShaderStageCreateInfo fragmentShaderStage =
-      vk::PipelineShaderStageCreateInfo{}
-          .setStage(vk::ShaderStageFlagBits::eFragment)
-          .setModule(fragmentShader.module)
-          .setPName("main")
-          .setPSpecializationInfo(nullptr);
-
-  vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
-  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
-
-  vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
-      vk::PipelineRenderingCreateInfo{}
-          .setColorAttachmentCount(1)
-          .setDepthAttachmentFormat(depthAttachmentFormat)
-          .setColorAttachmentFormats(colorAttachmentFormat);
-
-  std::vector<vk::PipelineShaderStageCreateInfo> stages{
-      vertexShaderStage,
-      fragmentShaderStage,
-  };
-
-  vk::PushConstantRange pushConstantRange =
-      vk::PushConstantRange{}
-          .setOffset(0)
-          .setSize(sizeof(FrameData))
-          .setStageFlags(vk::ShaderStageFlagBits::eVertex |
-                         vk::ShaderStageFlagBits::eFragment);
-
-  vk::PipelineVertexInputStateCreateInfo vertexInputState =
-      vk::PipelineVertexInputStateCreateInfo{}
-          .setVertexBindingDescriptions(inputBindings)
-          .setVertexBindingDescriptionCount(inputBindings.size())
-          .setVertexAttributeDescriptionCount(inputAttributes.size())
-          .setVertexAttributeDescriptions(inputAttributes);
-
-  vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState =
-      vk::PipelineInputAssemblyStateCreateInfo{}
-          .setTopology(vk::PrimitiveTopology::eTriangleList)
-          .setPrimitiveRestartEnable(0);
-
-  vk::PipelineViewportStateCreateInfo viewportState =
-      vk::PipelineViewportStateCreateInfo{}
-          .setScissors(scissors)
-          .setViewports(viewport)
-          .setViewportCount(1)
-          .setScissorCount(1);
-
-  vk::PipelineRasterizationStateCreateInfo rasterizationState =
-      vk::PipelineRasterizationStateCreateInfo{}
-          .setRasterizerDiscardEnable(0)
-          .setDepthClampEnable(0)
-          .setDepthBiasEnable(0)
-          .setPolygonMode(vk::PolygonMode::eFill)
-          .setCullMode(vk::CullModeFlagBits::eFront)
-          .setFrontFace(vk::FrontFace::eCounterClockwise)
-          .setLineWidth(1.0f);
-
-  vk::PipelineMultisampleStateCreateInfo multisampleState =
-      vk::PipelineMultisampleStateCreateInfo{}
-          .setRasterizationSamples(sampleCount)
-          .setMinSampleShading(0.2)
-          .setSampleShadingEnable(1);
-
-  vk::PipelineDepthStencilStateCreateInfo depthStencilState =
-      vk::PipelineDepthStencilStateCreateInfo{}
-          .setDepthTestEnable(1)
-          .setDepthWriteEnable(0)
-          .setStencilTestEnable(0)
-          .setDepthBoundsTestEnable(0)
-          .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
-
-  vk::PipelineColorBlendAttachmentState colorBlendAttachmentState =
-      vk::PipelineColorBlendAttachmentState{}
-          .setBlendEnable(0)
-          .setColorWriteMask(
-              vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
-
-  vk::PipelineColorBlendStateCreateInfo colorBlendState =
-      vk::PipelineColorBlendStateCreateInfo{}
-          .setAttachmentCount(1)
-          .setAttachments(colorBlendAttachmentState);
-
-  vk::DynamicState dynamicStates[2] = {vk::DynamicState::eViewport,
-                                       vk::DynamicState::eScissor};
-
-  vk::PipelineDynamicStateCreateInfo dynamicState =
-      vk::PipelineDynamicStateCreateInfo{}
-          .setDynamicStates(dynamicStates)
-          .setDynamicStateCount(2);
+          .setDynamicStateCount(dynamicStates.size());
 
   vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo =
       vk::PipelineLayoutCreateInfo{}
@@ -1433,16 +1284,61 @@ void GPU::resetFence() const {
   assert(device.resetFences(1, &fence) == vk::Result::eSuccess);
 }
 
-void GPU::beginRendering(uint32_t imageIndex) {
+void GPU::beginShadowPass() {
+  vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
+      vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
+
+  vk::RenderingAttachmentInfo depthAttachment =
+      vk::RenderingAttachmentInfo{}
+          .setImageView(shadowMapImage.view)
+          .setResolveMode(vk::ResolveModeFlagBits::eNone)
+          .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+          .setLoadOp(vk::AttachmentLoadOp::eClear)
+          .setStoreOp(vk::AttachmentStoreOp::eNone)
+          .setClearValue(depthClearValue);
+
+  vk::ImageSubresourceRange depthSubresourceRange =
+      vk::ImageSubresourceRange{}
+          .setLayerCount(1)
+          .setAspectMask(vk::ImageAspectFlagBits::eDepth)
+          .setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0);
+
+  vk::ImageMemoryBarrier2 depthMemoryBarrier =
+      vk::ImageMemoryBarrier2{}
+          .setImage(depthImage.image)
+          .setOldLayout(vk::ImageLayout::eUndefined)
+          .setNewLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+          .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+          .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                            vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+          .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                           vk::PipelineStageFlagBits2::eLateFragmentTests)
+          .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                           vk::PipelineStageFlagBits2::eLateFragmentTests)
+          .setSubresourceRange(depthSubresourceRange);
+
+  vk::ImageMemoryBarrier2 imageMemoryBarriers[1] = {depthMemoryBarrier};
+
+  vk::DependencyInfo dependencyInfo =
+      vk::DependencyInfo{}
+          .setImageMemoryBarriers(imageMemoryBarriers)
+          .setImageMemoryBarrierCount(1);
+
+  vk::RenderingInfo renderingInfo = vk::RenderingInfo{}
+                                        .setRenderArea(scissors)
+                                        .setLayerCount(1)
+                                        .setViewMask(0)
+                                        .setPDepthAttachment(&depthAttachment);
+
+  commandBuffer.pipelineBarrier2(dependencyInfo);
+  commandBuffer.beginRendering(renderingInfo);
+}
+
+void GPU::beginMainPass(const uint32_t imageIndex) {
   vk::ImageView swapImageView = swapchainImageViews[imageIndex];
   vk::Image swapImage = swapchainImages[imageIndex];
-
-  commandBuffer.reset();
-
-  vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo{}.setFlags(
-      vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-
-  commandBuffer.begin(beginInfo);
 
   vk::ClearValue clearValue = vk::ClearValue{}.setColor(
       vk::ClearColorValue{}.setFloat32({0.0, 0.0, 0.0, 0.0}));
@@ -1602,13 +1498,9 @@ void GPU::createMultiSampleImage() {
 }
 
 void GPU::createImages() {
-  createDepthImage();
+  depthImage = createDepthImage(sampleCount);
   createMultiSampleImage();
-}
-
-void GPU::endRendering() const {
-  commandBuffer.endRendering();
-  commandBuffer.end();
+  shadowMapImage = createDepthImage();
 }
 
 void GPU::submit(const uint32_t imageIndex) {
@@ -1656,4 +1548,172 @@ void GPU::submit(const uint32_t imageIndex) {
       DEBUG_BREAK();
       break;
   }
+}
+
+void GPU::createShadowPipeline(
+) {
+  assert(sizeof(ShadowPassFrameData) <= physicalDeviceProperties.properties.limits.maxPushConstantsSize);
+
+  Shader vertexShader = loadShader("./shaders/shadows.vert.glsl.spv", vk::ShaderStageFlagBits::eVertex);
+  std::vector<vk::DescriptorSetLayout> setLayouts{uniformLayout};
+
+  Pipeline pipeline{};
+
+  std::vector<vk::VertexInputBindingDescription> inputBindings{
+      vk::VertexInputBindingDescription{}
+          .setStride(sizeof(Vertex))
+          .setInputRate(vk::VertexInputRate::eVertex)
+          .setBinding(0)};
+
+  vk::VertexInputAttributeDescription vertexPositionAttributeDescription =
+      vk::VertexInputAttributeDescription{}
+          .setBinding(0)
+          .setLocation(0)
+          .setOffset(offsetof(Vertex, position))
+          .setFormat(vk::Format::eR32G32B32Sfloat);
+
+  std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
+      vertexPositionAttributeDescription,
+  };
+
+  vk::PipelineShaderStageCreateInfo vertexShaderStage =
+      vk::PipelineShaderStageCreateInfo{}
+          .setStage(vk::ShaderStageFlagBits::eVertex)
+          .setModule(vertexShader.module)
+          .setPName("main")
+          .setPSpecializationInfo(nullptr);
+
+  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
+
+  vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
+      vk::PipelineRenderingCreateInfo{}
+          .setColorAttachmentCount(0)
+          .setDepthAttachmentFormat(depthAttachmentFormat);
+
+  std::vector<vk::PipelineShaderStageCreateInfo> stages{vertexShaderStage};
+
+  vk::PushConstantRange pushConstantRange =
+      vk::PushConstantRange{}
+          .setOffset(0)
+          .setSize(sizeof(ShadowPassFrameData))
+          .setStageFlags(vk::ShaderStageFlagBits::eVertex);
+
+  vk::PipelineVertexInputStateCreateInfo vertexInputState =
+      vk::PipelineVertexInputStateCreateInfo{}
+          .setVertexBindingDescriptions(inputBindings)
+          .setVertexBindingDescriptionCount(inputBindings.size())
+          .setVertexAttributeDescriptionCount(inputAttributes.size())
+          .setVertexAttributeDescriptions(inputAttributes);
+
+  vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState =
+      vk::PipelineInputAssemblyStateCreateInfo{}
+          .setTopology(vk::PrimitiveTopology::eTriangleList)
+          .setPrimitiveRestartEnable(0);
+
+  vk::PipelineViewportStateCreateInfo viewportState =
+      vk::PipelineViewportStateCreateInfo{}
+          .setScissors(scissors)
+          .setViewports(viewport)
+          .setViewportCount(1)
+          .setScissorCount(1);
+
+  vk::PipelineRasterizationStateCreateInfo rasterizationState =
+      vk::PipelineRasterizationStateCreateInfo{}
+          .setRasterizerDiscardEnable(0)
+          .setDepthClampEnable(0)
+          .setDepthBiasEnable(0)
+          .setPolygonMode(vk::PolygonMode::eFill)
+          .setFrontFace(vk::FrontFace::eCounterClockwise)
+          .setLineWidth(1.0f);
+
+  vk::PipelineMultisampleStateCreateInfo multisampleState =
+      vk::PipelineMultisampleStateCreateInfo{}
+          .setRasterizationSamples(vk::SampleCountFlagBits::e1)
+          .setSampleShadingEnable(0);
+
+  vk::PipelineDepthStencilStateCreateInfo depthStencilState =
+      vk::PipelineDepthStencilStateCreateInfo{}
+          .setDepthTestEnable(1)
+          .setDepthWriteEnable(1)
+          .setStencilTestEnable(0)
+          .setDepthBoundsTestEnable(0)
+          .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
+
+  std::vector<vk::DynamicState> dynamicStates{
+      vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+
+  vk::PipelineDynamicStateCreateInfo dynamicState =
+      vk::PipelineDynamicStateCreateInfo{}
+          .setDynamicStates(dynamicStates)
+          .setDynamicStateCount(dynamicStates.size());
+
+  vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo =
+      vk::PipelineLayoutCreateInfo{}
+          .setPushConstantRanges(pushConstantRange)
+          .setPushConstantRangeCount(1)
+          .setSetLayouts(setLayouts)
+          .setSetLayoutCount(setLayouts.size());
+
+  pipeline.layout =
+      device.createPipelineLayout(pipelineLayoutCreateInfo, nullptr);
+
+  vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo =
+      vk::GraphicsPipelineCreateInfo{}
+          .setPNext(&pipelineRenderingCreateInfo)
+          .setStages(stages)
+          .setStageCount(stages.size())
+          .setPVertexInputState(&vertexInputState)
+          .setPInputAssemblyState(&inputAssemblyState)
+          .setPTessellationState(VK_NULL_HANDLE)
+          .setPViewportState(&viewportState)
+          .setPRasterizationState(&rasterizationState)
+          .setPMultisampleState(&multisampleState)
+          .setPDepthStencilState(&depthStencilState)
+          .setPDynamicState(&dynamicState)
+          .setRenderPass(VK_NULL_HANDLE)
+          .setLayout(pipeline.layout)
+          .setFlags(vk::PipelineCreateFlagBits::eDescriptorBufferEXT);
+
+  vk::ResultValue<vk::Pipeline> pipelineResult =
+      device.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
+
+  assert(pipelineResult.result == vk::Result::eSuccess);
+
+  pipeline.vertexShader = vertexShader;
+  pipeline.pipeline = pipelineResult.value;
+
+  shadowsPipeline = pipeline;
+}
+
+void GPU::createPipelines() {
+  std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
+      textureLayout, uniformLayout, lightLayout, uniformLayout, skyboxLayout, uniformLayout
+  };
+
+  entitiesPipeline =
+      createPipeline(loadShader("./shaders/shader.vert.glsl.spv",
+                                vk::ShaderStageFlagBits::eVertex),
+                     loadShader("./shaders/shader.frag.glsl.spv",
+                                vk::ShaderStageFlagBits::eFragment),
+                     descriptorSetLayouts, sizeof(MainPassFrameData));
+
+  descriptorSetLayouts = {
+      skyboxLayout, uniformLayout
+  };
+
+  skyboxPipeline =
+      createPipeline(loadShader("./shaders/cubemap.vert.glsl.spv",
+                                vk::ShaderStageFlagBits::eVertex),
+                     loadShader("./shaders/cubemap.frag.glsl.spv",
+                                vk::ShaderStageFlagBits::eFragment),
+                     descriptorSetLayouts, sizeof(SkyboxFrameData));
+
+  createShadowPipeline();
+};
+
+void GPU::beginRecordingCommands() {
+  vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo{}.setFlags(
+      vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+
+  commandBuffer.begin(beginInfo);
 }

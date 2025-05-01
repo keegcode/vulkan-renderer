@@ -18,10 +18,11 @@ class Display {
   SDL_Window* window;
   std::vector<const char*> vulkanExtensions;
 
+  Display();
+
   uint32_t width;
   uint32_t height;
 
-  void init();
   void destroy() const;
   VkSurfaceKHR createVulkanSurface(const VkInstance& instance) const;
 };

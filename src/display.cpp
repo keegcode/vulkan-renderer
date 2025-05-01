@@ -2,7 +2,7 @@
 
 #include <SDL3/SDL_vulkan.h>
 
-void Display::init() {
+Display::Display() {
   SDL_ASSERT(SDL_Init(SDL_INIT_VIDEO));
   SDL_ASSERT(SDL_Vulkan_LoadLibrary(nullptr));
 
