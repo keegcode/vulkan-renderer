@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_scalar_block_layout : enable
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
@@ -7,7 +8,7 @@ layout(location = 3) in vec3 inNormals;
 
 layout(location = 0) out vec3 outTexCoord;
 
-layout(push_constant) uniform FrameData {
+layout(scalar, push_constant) uniform FrameData {
   mat4 matrix;
 }
 frameData;

@@ -17,7 +17,7 @@ void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
 }
 
 struct ShadowPassFrameData {
-  glm::mat4 viewProjection;
+  glm::mat4 lightSpaceMatrix;
   glm::mat4 model;
 };
 
@@ -130,6 +130,7 @@ class GPU {
   vk::DescriptorSetLayout lightLayout;
   vk::DescriptorSetLayout storageBufferLayout;
   vk::DescriptorSetLayout skyboxLayout;
+  vk::DescriptorSetLayout globalMapLayout;
 
   Image depthImage;
   Image shadowMapImage;
@@ -202,7 +203,8 @@ class GPU {
   void endSingleSubmitCommand(
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
-  Image createDepthImage(const vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1);
+  Image createDepthImage(const vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1,
+                         const vk::ImageUsageFlagBits usage = vk::ImageUsageFlagBits::eDepthStencilAttachment);
   Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
                              const vk::Extent2D& extent);

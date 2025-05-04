@@ -25,19 +25,24 @@ int32_t main() {
 
   perspective[1][1] *= -1;
 
-  Projection proj{model, view, perspective};
-  config.projection = proj;
+  Transform transform{model, view, perspective};
+  config.transform = transform;
 
   config.assets.push_back("./assets/Sponza/glTF/Sponza.gltf");
   config.assets.push_back("./assets/DamagedHelmet/glTF/DamagedHelmet.gltf");
   config.assets.push_back(
       "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
 
-  config.directionalLight.direction = glm::vec3{-1.0, -1.0, 0.0};
-  config.directionalLight.position = glm::vec3{0.0, 300.0, 0.0};
+  config.directionalLight.direction = glm::vec3{0.1, -300.0, -100.0};
   config.directionalLight.ambient = glm::vec3{0.1};
-  config.directionalLight.diffuse = glm::vec3{1.0};
-  config.directionalLight.specular = glm::vec3{1.0};
+  config.directionalLight.diffuse = glm::vec3{0.6};
+  config.directionalLight.specular = glm::vec3{0.1};
+
+  config.directionalLight.lightSpaceMatrix = glm::perspective(
+      glm::radians(60.0f), display.width / (float)display.height, 10.0f, 400.0f);
+
+  config.directionalLight.lightSpaceMatrix[1][1] *= -1;
+  config.directionalLight.lightSpaceMatrix *= glm::lookAt(glm::vec3{0.1, 300.0f, 100.0f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
 
   PointLight pointLight{};
   pointLight.position = glm::vec3{0.0, 10.0, 120.0};

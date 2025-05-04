@@ -31,8 +31,8 @@ void GPU::createInstance() {
           .set_app_name("VkRenderer")
           .require_api_version(1, 3)
           .enable_extensions(display.vulkanExtensions)
-          .enable_validation_layers(true)
-          .use_default_debug_messenger()
+          //.enable_validation_layers(true)
+          //.use_default_debug_messenger()
           .build();
 
   VKB_ASSERT(instanceResult);
@@ -47,6 +47,7 @@ void GPU::destroy() const {
   device.destroyDescriptorSetLayout(lightLayout);
   device.destroyDescriptorSetLayout(storageBufferLayout);
   device.destroyDescriptorSetLayout(skyboxLayout);
+  device.destroyDescriptorSetLayout(globalMapLayout);
 
   destroyPipeline(entitiesPipeline);
   destroyPipeline(skyboxPipeline);
@@ -73,7 +74,7 @@ void GPU::pickPhysicalDevice() {
   std::vector<const char*> extensions = {
       vk::EXTDescriptorBufferExtensionName,
       vk::EXTExtendedDynamicState3ExtensionName,
-      vk::EXTScalarBlockLayoutExtensionName,
+      vk::EXTScalarBlockLayoutExtensionName
   };
 
   vk::PhysicalDeviceFeatures features =
@@ -252,11 +253,8 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutBinding specularMapBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1);
 
-  vk::DescriptorSetLayoutBinding shadowMapBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(2);
-
   std::vector<vk::DescriptorSetLayoutBinding> textureBindings{
-      diffuseMapBidning, specularMapBinding, shadowMapBinding};
+      diffuseMapBidning, specularMapBinding};
 
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
@@ -285,6 +283,11 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutBinding skyboxBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
 
+  std::vector<vk::DescriptorSetLayoutBinding> globalMapBindings{
+    vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0),
+    vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1)
+  };
+
   std::vector<vk::DescriptorSetLayoutBinding> skyboxBindings{skyboxBinding};
 
   vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo =
@@ -311,7 +314,14 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutCreateInfo skyboxSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
           .setBindings(skyboxBindings)
-          .setBindingCount(1)
+          .setBindingCount(skyboxBindings.size())
+          .setFlags(
+              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
+
+  vk::DescriptorSetLayoutCreateInfo globalMapSetLayoutCreateInfo =
+      vk::DescriptorSetLayoutCreateInfo{}
+          .setBindings(globalMapBindings)
+          .setBindingCount(globalMapBindings.size())
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
@@ -329,6 +339,9 @@ void GPU::createDescriptorSetLayouts() {
 
   skyboxLayout =
       device.createDescriptorSetLayout(skyboxSetLayoutCreateInfo, nullptr);
+
+  globalMapLayout =
+      device.createDescriptorSetLayout(globalMapSetLayoutCreateInfo, nullptr);
 }
 
 Descriptor GPU::createStorageBufferDescriptor(
@@ -665,7 +678,7 @@ void GPU::endSingleSubmitCommand(
   device.freeCommandBuffers(commandPool, 1, &singleSubmitBuffer);
 }
 
-Image GPU::createDepthImage(const vk::SampleCountFlagBits samples) {
+Image GPU::createDepthImage(const vk::SampleCountFlagBits samples, const vk::ImageUsageFlagBits usage) {
   Image image{};
   image.extent = vk::Extent3D{vkbSwapchain.extent}.setDepth(1);
 
@@ -677,7 +690,7 @@ Image GPU::createDepthImage(const vk::SampleCountFlagBits samples) {
           .setArrayLayers(1)
           .setSamples(samples)
           .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment)
+          .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment | usage)
           .setSharingMode(vk::SharingMode::eExclusive)
           .setInitialLayout(vk::ImageLayout::eUndefined)
           .setExtent(image.extent);
@@ -1294,7 +1307,7 @@ void GPU::beginShadowPass() {
           .setResolveMode(vk::ResolveModeFlagBits::eNone)
           .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
           .setLoadOp(vk::AttachmentLoadOp::eClear)
-          .setStoreOp(vk::AttachmentStoreOp::eNone)
+          .setStoreOp(vk::AttachmentStoreOp::eStore)
           .setClearValue(depthClearValue);
 
   vk::ImageSubresourceRange depthSubresourceRange =
@@ -1307,9 +1320,9 @@ void GPU::beginShadowPass() {
 
   vk::ImageMemoryBarrier2 depthMemoryBarrier =
       vk::ImageMemoryBarrier2{}
-          .setImage(depthImage.image)
+          .setImage(shadowMapImage.image)
           .setOldLayout(vk::ImageLayout::eUndefined)
-          .setNewLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+          .setNewLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
           .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
           .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead |
                             vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -1500,7 +1513,7 @@ void GPU::createMultiSampleImage() {
 void GPU::createImages() {
   depthImage = createDepthImage(sampleCount);
   createMultiSampleImage();
-  shadowMapImage = createDepthImage();
+  shadowMapImage = createDepthImage(vk::SampleCountFlagBits::e1, vk::ImageUsageFlagBits::eSampled);
 }
 
 void GPU::submit(const uint32_t imageIndex) {
@@ -1687,7 +1700,8 @@ void GPU::createShadowPipeline(
 
 void GPU::createPipelines() {
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      textureLayout, uniformLayout, lightLayout, uniformLayout, skyboxLayout, uniformLayout
+      textureLayout, uniformLayout, lightLayout,
+      uniformLayout, globalMapLayout, uniformLayout 
   };
 
   entitiesPipeline =

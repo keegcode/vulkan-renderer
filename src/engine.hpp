@@ -42,13 +42,20 @@ struct PointLight {
   Buffer uniform;
 };
 
+struct Transform {
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 projection;
+  Buffer uniform;
+};
+
 struct DirectionalLight {
   glm::vec3 direction;
   glm::vec3 ambient;
   glm::vec3 diffuse;
   glm::vec3 specular;
+  glm::mat4 lightSpaceMatrix;
   Buffer uniform;
-  glm::vec3 position;
 };
 
 enum class CameraMode { Fixed, Move };
@@ -84,7 +91,7 @@ struct Material {
   float alphaCutoff = 0.001;
   glm::vec3 color = glm::vec3{1.0};
   float transmissionFactor = 0.0f;
-  float rougness = 1.0f;
+  float roughness = 1.0f;
   Buffer uniform;
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
@@ -108,13 +115,6 @@ struct Asset {
   std::filesystem::path path;
 };
 
-struct Projection {
-  glm::mat4 model;
-  glm::mat4 view;
-  glm::mat4 perspective;
-  glm::mat4 lightViewMatrix;
-  Buffer uniform;
-};
 
 struct Entity {
   glm::mat4 matrix = glm::mat4{1.0f};
@@ -123,7 +123,7 @@ struct Entity {
 };
 
 struct EngineConfig {
-  Projection projection;
+  Transform transform;
   DirectionalLight directionalLight;
   std::vector<PointLight> pointLights;
   std::vector<SpotLight> spotLights;
@@ -159,10 +159,8 @@ struct ImageData {
 
 class Engine {
  public:
-  Texture skybox;
-  Texture reflectionCube;
 
-  Projection projection;
+  Transform transform;
 
   std::vector<Entity> entities;
   std::vector<Material> materials;
@@ -175,15 +173,17 @@ class Engine {
   std::vector<SpotLight> spotLights;
 
   Camera camera;
+
   Texture shadowMap;
+  Texture skybox;
 
   Descriptor entitiesDescriptor;
   Descriptor materialsDescriptor;
   Descriptor texturesDescriptor;
   Descriptor lightsDescriptor;
   Descriptor skyboxDescriptor;
-  Descriptor reflectionCubeDescriptor;
-  Descriptor projectionDescriptor;
+  Descriptor globalMapDescriptor;
+  Descriptor transformDescriptor;
 
   bool isRunning = true;
 
@@ -225,8 +225,10 @@ class Engine {
 
   Image loadImage(const std::filesystem::path& path);
   Image loadCubemap(const std::string& type);
+
+  void createDescriptors();
+  void prepareUniformsAndDescriptors();
   void loadSkybox();
-  void loadReflectionCube();
   void drawShadows(const ShadowPassFrameData& frameData);
   void drawEntities(const MainPassFrameData& frameData);
   void drawEntity(const uint32_t entityIdx, const uint32_t meshIdx);
