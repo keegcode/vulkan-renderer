@@ -35,7 +35,8 @@ struct Vertex {
   float position[3];
   float clr[4];
   float uv[2];
-  float normals[3];
+  float normal[3];
+  float tangent[3];
 };
 
 struct Buffer {
@@ -84,6 +85,12 @@ struct ImageMemoryBarrierOptions {
   uint32_t layers = 1;
   uint32_t mipLevel = 0;
   uint32_t levelCount = 1;
+};
+
+struct DepthImageOptions {
+  vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1;
+  vk::ImageUsageFlagBits usage = vk::ImageUsageFlagBits::eDepthStencilAttachment;
+  vk::Extent2D extent;
 };
 
 class GPU {
@@ -203,9 +210,8 @@ class GPU {
   void endSingleSubmitCommand(
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
-  Image createDepthImage(const vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1,
-                         const vk::ImageUsageFlagBits usage = vk::ImageUsageFlagBits::eDepthStencilAttachment);
-  Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent);
+  Image createDepthImage(const DepthImageOptions& options);
+  Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent, const vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
                              const vk::Extent2D& extent);
   void createImages();

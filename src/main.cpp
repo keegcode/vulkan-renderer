@@ -33,19 +33,19 @@ int32_t main() {
   config.assets.push_back(
       "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
 
-  config.directionalLight.direction = glm::vec3{0.1, -300.0, -100.0};
-  config.directionalLight.ambient = glm::vec3{0.1};
-  config.directionalLight.diffuse = glm::vec3{0.6};
-  config.directionalLight.specular = glm::vec3{0.1};
+  config.directionalLight.direction = glm::normalize(glm::vec3{0.0f, -300.0, 50.0});
+  config.directionalLight.ambient = glm::vec3{0.4};
+  config.directionalLight.diffuse = glm::vec3{0.8};
+  config.directionalLight.specular = glm::vec3{0.4};
 
   config.directionalLight.lightSpaceMatrix = glm::perspective(
       glm::radians(60.0f), display.width / (float)display.height, 10.0f, 400.0f);
 
   config.directionalLight.lightSpaceMatrix[1][1] *= -1;
-  config.directionalLight.lightSpaceMatrix *= glm::lookAt(glm::vec3{0.1, 300.0f, 100.0f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
+  config.directionalLight.lightSpaceMatrix *= glm::lookAt(glm::vec3{0.0f, 300.0f, -50.0f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
 
   PointLight pointLight{};
-  pointLight.position = glm::vec3{0.0, 10.0, 120.0};
+  pointLight.position = glm::vec3{0.0, 10.0, -50.0};
   pointLight.ambient = glm::vec3{0.1};
   pointLight.diffuse = glm::vec3{0.5};
   pointLight.specular = glm::vec3{0.4};

@@ -4,13 +4,16 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
 layout(location = 2) in vec2 inTexCoord;
-layout(location = 3) in vec3 inNormals;
+layout(location = 3) in vec3 inNormal;
+layout(location = 4) in vec3 inTangent;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec2 outTexCoord;
 layout(location = 2) out vec3 outPos;
 layout(location = 3) out vec4 outLightPos;
-layout(location = 4) out vec3 outNormals;
+layout(location = 4) out vec3 outNormal;
+layout(location = 5) out vec3 outViewPos;
+layout(location = 6) out mat3 outTBN;
 
 layout(scalar, push_constant) uniform FrameData {
   vec3 camera;
@@ -40,15 +43,21 @@ layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
 entity;
 
 void main() {
+  vec3 T = normalize(vec3(transform.model * vec4(inTangent, 0.0)));
+  vec3 N = normalize(vec3(transform.model * vec4(inNormal, 0.0)));
+  T = normalize(T - dot(T, N) * N);
+  vec3 B = cross(N, T);
+
   vec4 pos = (entity.matrix * transform.model * vec4(inPosition, 1.0));
-  vec4 lightPos = (directionalLight.lightSpaceMatrix * entity.matrix * transform.model * vec4(inPosition, 1.0));
-  vec4 normal = (entity.matrix * transform.model * vec4(inNormals, 0.0));
+  vec4 normal = (entity.matrix * transform.model * vec4(inNormal, 0.0));
 
   outTexCoord = inTexCoord;
   outColor = inColor;
-  outNormals = vec3(normal);
-  outLightPos = lightPos;
+  outLightPos = (directionalLight.lightSpaceMatrix * pos);
+  outNormal = vec3(normal);
   outPos = vec3(pos);
+  outViewPos = frameData.camera;
+  outTBN = mat3(T, B, N);
 
   gl_Position = transform.projection * vec4(vec3(transform.view * pos), 1.0);
 }

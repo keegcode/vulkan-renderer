@@ -92,6 +92,7 @@ struct Material {
   glm::vec3 color = glm::vec3{1.0};
   float transmissionFactor = 0.0f;
   float roughness = 1.0f;
+  uint32_t normalTextureIdx = 1;
   Buffer uniform;
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
@@ -103,6 +104,7 @@ enum class TextureType {
   BaseColor,
   Specular,
   Cube,
+  Normal
 };
 
 struct Texture {
@@ -223,7 +225,7 @@ class Engine {
                                            const GLTFMinFilter min,
                                            const Image& image) const;
 
-  Image loadImage(const std::filesystem::path& path);
+  Image loadImage(const std::filesystem::path& path, vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image loadCubemap(const std::string& type);
 
   void createDescriptors();

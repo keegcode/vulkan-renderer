@@ -5,7 +5,9 @@ layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec2 inTexCoord;
 layout(location = 2) in vec3 inPos;
 layout(location = 3) in vec4 inLightPos;
-layout(location = 4) in vec3 inNormals;
+layout(location = 4) in vec3 inNormal;
+layout(location = 5) in vec3 inViewPos;
+layout(location = 6) in mat3 inTBN;
 
 layout(location = 0) out vec4 outColor;
 
@@ -18,6 +20,7 @@ frameData;
 
 layout(set = 0, binding = 0) uniform sampler2D diffuseMap;
 layout(set = 0, binding = 1) uniform sampler2D specularMap;
+layout(set = 0, binding = 2) uniform sampler2D normalMap;
 
 layout(scalar, set = 1, binding = 0) uniform Material {
   vec3 specular;
@@ -27,6 +30,7 @@ layout(scalar, set = 1, binding = 0) uniform Material {
   vec3 color;
   float transmissionFactor;
   float roughness;
+  uint normalMapIdx;
 }
 material;
 
@@ -64,23 +68,36 @@ layout(scalar, set = 2, binding = 2) uniform SpotLight {
 }
 spotLights[8];
 
-layout(set = 4, binding = 0) uniform sampler2D shadowMap;
+layout(set = 4, binding = 0) uniform sampler2DShadow shadowMap;
 layout(set = 4, binding = 1) uniform samplerCube skybox;
 
+layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
+  mat4 matrix;
+}
+entity;
+
+layout(scalar, set = 5, binding = 0) uniform Transform {
+  mat4 model;
+  mat4 view;
+  mat4 projection;
+} transform;
+
 float calcShadow() {
-  vec4 pos = inLightPos / inLightPos.w;
+  vec4 sampleLightPos = inLightPos / inLightPos.w;
+  sampleLightPos.xy = sampleLightPos.xy * 0.5 + 0.5;
 
-  float closestDepth = texture(shadowMap, pos.st).r;
-  float currentDepth = pos.z;
+  float currentDepth = sampleLightPos.z;
 
-  float shadow = currentDepth > closestDepth ? 0.0 : 1.0;
+  if (currentDepth > 1.0) {
+    return 0.0;
+  }
   
-  return closestDepth;
+  return texture(shadowMap, sampleLightPos.xyz).r;
 }
 
 vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 lightDir = normalize(-directionalLight.direction);
-  vec3 halfDir = vec3(lightDir + viewDir);
+  vec3 halfDir = normalize(vec3(lightDir + viewDir));
 
   float diff = max(dot(lightDir, normal), 0.0);
   vec3 diffuse =
@@ -106,7 +123,7 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 diffuse =
       pointLights[idx].diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
 
-  vec3 halfDir = vec3(lightDir + viewDir);
+  vec3 halfDir = normalize(vec3(lightDir + viewDir));
 
   float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);
   vec3 specular =
@@ -169,17 +186,6 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   return (specular + ambient + diffuse);
 }
 
-vec3 calcCubemapReflection(vec3 baseColor, vec3 viewDir, vec3 normal) {
-  vec3 r = refract(-viewDir, normal, 0.7);
-  vec4 color = texture(skybox, r);
-  float dot = max(dot(normal, viewDir), 0.0);
-  float reflectionStrength = mix(1.0, 0.0, pow(material.roughness, 2.0));
-  float fresnel = pow(1.0 - dot, 5.0) * (1.0 - material.roughness);
-  float reflectionFactor =
-      reflectionStrength + fresnel * (1.0 - reflectionStrength);
-  return mix(baseColor, vec3(color), reflectionFactor);
-}
-
 float linearizeDepth(float depth) {
 	float zNear = 0.5f; 
 	float zFar  = 500.0f;
@@ -187,8 +193,11 @@ float linearizeDepth(float depth) {
 }
 
 void main() {
-  vec3 normal = normalize(inNormals);
-  vec3 viewDir = normalize(frameData.camera - inPos);
+  vec3 normal = texture(normalMap, inTexCoord).rgb;
+  normal = normalize(normal * 2.0 - 1.0);
+  normal = normalize(inTBN * normal);
+
+  vec3 viewDir = normalize(inViewPos - inPos);
 
   vec3 shadow = vec3(0.0);
   shadow += calcDirectionLight(normal, inPos, viewDir);
@@ -208,7 +217,6 @@ void main() {
   }
 
   color.a *= 1.0 - material.transmissionFactor;
-  color.xyz = calcCubemapReflection(color.xyz, viewDir, normal);
 
   float c = linearizeDepth(gl_FragCoord.z);
   vec4 fog = vec4(c, c, c, 1.0);

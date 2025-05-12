@@ -264,7 +264,7 @@ void Engine::destroy() {
   display.destroy();
 };
 
-Image Engine::loadImage(const std::filesystem::path& path) {
+Image Engine::loadImage(const std::filesystem::path& path, vk::Format format) {
   int height, width;
   uint8_t* data =
       stbi_load(path.string().c_str(), &width, &height, 0, STBI_rgb_alpha);
@@ -272,7 +272,7 @@ Image Engine::loadImage(const std::filesystem::path& path) {
   assert(data != nullptr);
 
   Image texture = gpu.createTexture2D(
-      data, vk::Extent2D{}.setWidth(width).setHeight(height));
+      data, vk::Extent2D{}.setWidth(width).setHeight(height), format);
 
   stbi_image_free(data);
 
@@ -317,22 +317,26 @@ void Engine::loadConfig(const EngineConfig& config) {
 void Engine::loadStatic() {
   vk::SamplerCreateInfo samplerCreateInfo =
       vk::SamplerCreateInfo{}
-          .setMagFilter(vk::Filter::eNearest)
-          .setMinFilter(vk::Filter::eNearest)
-          .setMipmapMode(vk::SamplerMipmapMode::eNearest)
+          .setMagFilter(vk::Filter::eLinear)
+          .setMinFilter(vk::Filter::eLinear)
           .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-          .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+          .setAddressModeU(vk::SamplerAddressMode::eRepeat)
           .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+          .setCompareEnable(0)
           .setAnisotropyEnable(1)
           .setMaxAnisotropy(
               std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
-                                  .maxSamplerAnisotropy))
-          .setCompareEnable(0);
+                                  .maxSamplerAnisotropy));
 
   Texture texture{};
   texture.image = loadImage("./textures/default.png");
   texture.type = TextureType::BaseColor;
   texture.sampler = gpu.createSampler(samplerCreateInfo);
+
+  Texture normal{};
+  normal.image = loadImage("./textures/default_normal.png", vk::Format::eR8G8B8A8Unorm);
+  normal.type = TextureType::Normal;
+  normal.sampler = gpu.createSampler(samplerCreateInfo);
 
   vk::SamplerCreateInfo shadowMapSamplerCreateInfo =
       vk::SamplerCreateInfo{}
@@ -342,6 +346,8 @@ void Engine::loadStatic() {
           .setAddressModeV(vk::SamplerAddressMode::eClampToBorder)
           .setAddressModeW(vk::SamplerAddressMode::eClampToBorder)
           .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+          .setCompareEnable(1)
+          .setCompareOp(vk::CompareOp::eLess)
           .setAnisotropyEnable(1)
           .setMaxAnisotropy(
               std::min(16.0f, gpu.physicalDeviceProperties.properties.limits
@@ -351,6 +357,7 @@ void Engine::loadStatic() {
   shadowMap.sampler = gpu.createSampler(shadowMapSamplerCreateInfo);
 
   textures.push_back(texture);
+  textures.push_back(normal);
 
   Material defaultMaterial{};
   defaultMaterial.emissive = glm::vec3{0.0f};
@@ -375,7 +382,7 @@ void Engine::loadAsset(const std::filesystem::path& path) {
 
   const aiScene* scene = importer.ReadFile(
       path.string().c_str(),
-      aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_OptimizeMeshes);
+      aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_OptimizeMeshes | aiProcess_CalcTangentSpace);
 
   assert(scene != nullptr);
 
@@ -412,9 +419,11 @@ void Engine::loadAsset(const std::filesystem::path& path) {
 
   for (const TextureCreateInfo& createInfo : createInfos) {
     ImageData image = cache[createInfo.path.string()];
-    textures[createInfo.textureIdx].image = gpu.createTexture2D(
+    Texture& texture = textures[createInfo.textureIdx];
+    vk::Format format = texture.type == TextureType::Normal ? vk::Format::eR8G8B8A8Unorm : vk::Format::eR8G8B8A8Srgb;
+    texture.image = gpu.createTexture2D(
         image.data,
-        vk::Extent2D{}.setWidth(image.width).setHeight(image.height));
+        vk::Extent2D{}.setWidth(image.width).setHeight(image.height), format);
     textures[createInfo.textureIdx].sampler =
         gpu.createSampler(extractGLTFSampler(
             createInfo.mapModeU, createInfo.mapModeV, createInfo.magFilter,
@@ -440,13 +449,24 @@ void Engine::loadMesh(Asset& asset,
     vertex.position[0] = assimpMesh->mVertices[j].x;
     vertex.position[1] = assimpMesh->mVertices[j].y;
     vertex.position[2] = assimpMesh->mVertices[j].z;
+    
+    if (assimpMesh->HasNormals()) {
+      vertex.normal[0] = assimpMesh->mNormals[j].x;
+      vertex.normal[1] = assimpMesh->mNormals[j].y;
+      vertex.normal[2] = assimpMesh->mNormals[j].z;
 
-    vertex.normals[0] = assimpMesh->mNormals[j].x;
-    vertex.normals[1] = assimpMesh->mNormals[j].y;
-    vertex.normals[2] = assimpMesh->mNormals[j].z;
+      vertex.tangent[0] = assimpMesh->mTangents[j].x;
+      vertex.tangent[1] = assimpMesh->mTangents[j].y;
+      vertex.tangent[2] = assimpMesh->mTangents[j].z;
+    }
 
-    vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
-    vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
+    vertex.uv[0] = 0.0f; 
+    vertex.uv[1] = 1.0f;
+
+    if (assimpMesh->HasTextureCoords(0)) {
+      vertex.uv[0] = assimpMesh->mTextureCoords[0][j].x;
+      vertex.uv[1] = assimpMesh->mTextureCoords[0][j].y;
+    }
 
     if (assimpMesh->HasVertexColors(0)) {
       vertex.clr[0] = assimpMesh->mColors[0][j].r;
@@ -555,6 +575,39 @@ void Engine::loadMaterial(Asset& asset,
     material.roughness = 0.7f;
   }
 
+  if (asset.path == "./assets/Brick/glTF/Brick.gltf") {
+    material.roughness = 0.5f;
+  }
+
+  if (assimpMaterial->GetTextureCount(aiTextureType_NORMALS) > 0) {
+    aiString normalMapPath;
+    assimpMaterial->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,
+                               &normalMapPath);
+    Texture normalMap{};
+    normalMap.type = TextureType::Normal;
+    material.normalTextureIdx = textures.size();
+
+    aiTextureMapMode mapModeU, mapModeV;
+    GLTFMinFilter min;
+    GLTFMagFilter mag;
+
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_U(aiTextureType_NORMALS, 0),
+                        mapModeU);
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_V(aiTextureType_NORMALS, 0),
+                        mapModeV);
+    assimpMaterial->Get(
+        AI_MATKEY_GLTF_MAPPINGFILTER_MAG(aiTextureType_NORMALS, 0), mag);
+    assimpMaterial->Get(
+        AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_NORMALS, 0), min);
+
+    createInfos.push_back(
+        {asset.path.parent_path().append(normalMapPath.C_Str()),
+         extractGLTFSampler(mapModeU, mapModeV, mag, min, normalMap.image),
+         material.normalTextureIdx, mapModeU, mapModeV, mag, min});
+
+    textures.push_back(normalMap);
+  }
+
   if (assimpMaterial->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
     aiString diffuseMapPath;
     assimpMaterial->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0,
@@ -596,14 +649,14 @@ void Engine::loadMaterial(Asset& asset,
     GLTFMinFilter min;
     GLTFMagFilter mag;
 
-    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_U(aiTextureType_BASE_COLOR, 0),
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_U(aiTextureType_SPECULAR, 0),
                         mapModeU);
-    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_V(aiTextureType_BASE_COLOR, 0),
+    assimpMaterial->Get(AI_MATKEY_MAPPINGMODE_V(aiTextureType_SPECULAR, 0),
                         mapModeV);
     assimpMaterial->Get(
-        AI_MATKEY_GLTF_MAPPINGFILTER_MAG(aiTextureType_BASE_COLOR, 0), min);
+        AI_MATKEY_GLTF_MAPPINGFILTER_MAG(aiTextureType_SPECULAR, 0), min);
     assimpMaterial->Get(
-        AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_BASE_COLOR, 0), mag);
+        AI_MATKEY_GLTF_MAPPINGFILTER_MIN(aiTextureType_SPECULAR, 0), mag);
 
     createInfos.push_back(
         {asset.path.parent_path().append(specularMapPath.C_Str()),
@@ -745,12 +798,16 @@ void Engine::prepareUniformsAndDescriptors() {
 
     Texture& diffuseMap = textures[material.diffuseTextureIdx];
     Texture& specularMap = textures[material.specularTextureIdx];
+    Texture& normalMap = textures[material.normalTextureIdx];
 
     gpu.setDescriptorImage(texturesDescriptor, diffuseMap.image,
                            diffuseMap.sampler, i, 0);
 
     gpu.setDescriptorImage(texturesDescriptor, specularMap.image,
                            specularMap.sampler, i, 1);
+
+    gpu.setDescriptorImage(texturesDescriptor, normalMap.image,
+                           specularMap.sampler, i, 2);
   }
 }
 
@@ -887,6 +944,7 @@ vk::SamplerCreateInfo Engine::extractGLTFSampler(const aiTextureMapMode u,
                                                  const GLTFMagFilter mag,
                                                  const GLTFMinFilter min,
                                                  const Image& image) const {
+
   vk::SamplerCreateInfo samplerCreateInfo =
       vk::SamplerCreateInfo{}
           .setMaxLod(image.mipLevels)

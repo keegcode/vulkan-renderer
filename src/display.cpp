@@ -1,5 +1,6 @@
 #include "display.hpp"
 
+#include <SDL3/SDL_video.h>
 #include <SDL3/SDL_vulkan.h>
 
 Display::Display() {
@@ -19,7 +20,7 @@ Display::Display() {
   height = displayMode->h;
 
   window = SDL_CreateWindow("Vulkan", width, height,
-                            SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+                            SDL_WINDOW_MAXIMIZED | SDL_WINDOW_VULKAN);
 
   SDL_ASSERT(window);
 

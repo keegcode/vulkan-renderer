@@ -253,8 +253,11 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutBinding specularMapBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1);
 
+  vk::DescriptorSetLayoutBinding normalMapBinding =
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(2);
+
   std::vector<vk::DescriptorSetLayoutBinding> textureBindings{
-      diffuseMapBidning, specularMapBinding};
+      diffuseMapBidning, specularMapBinding, normalMapBinding};
 
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
@@ -678,7 +681,7 @@ void GPU::endSingleSubmitCommand(
   device.freeCommandBuffers(commandPool, 1, &singleSubmitBuffer);
 }
 
-Image GPU::createDepthImage(const vk::SampleCountFlagBits samples, const vk::ImageUsageFlagBits usage) {
+Image GPU::createDepthImage(const DepthImageOptions& options) {
   Image image{};
   image.extent = vk::Extent3D{vkbSwapchain.extent}.setDepth(1);
 
@@ -688,9 +691,9 @@ Image GPU::createDepthImage(const vk::SampleCountFlagBits samples, const vk::Ima
           .setFormat(vk::Format::eD32Sfloat)
           .setMipLevels(1)
           .setArrayLayers(1)
-          .setSamples(samples)
+          .setSamples(options.samples)
           .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment | usage)
+          .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment | options.usage)
           .setSharingMode(vk::SharingMode::eExclusive)
           .setInitialLayout(vk::ImageLayout::eUndefined)
           .setExtent(image.extent);
@@ -727,7 +730,7 @@ Image GPU::createDepthImage(const vk::SampleCountFlagBits samples, const vk::Ima
   return image;
 }
 
-Image GPU::createTexture2D(const uint8_t* data, const vk::Extent2D& extent) {
+Image GPU::createTexture2D(const uint8_t* data, const vk::Extent2D& extent, const vk::Format format) {
   Image image{};
   image.extent = vk::Extent3D{extent}.setDepth(1);
   image.mipLevels = utils::getMipLevels(extent.height, extent.width);
@@ -735,7 +738,7 @@ Image GPU::createTexture2D(const uint8_t* data, const vk::Extent2D& extent) {
   VkImageCreateInfo imageCreateInfo =
       vk::ImageCreateInfo{}
           .setImageType(vk::ImageType::e2D)
-          .setFormat(vk::Format::eR8G8B8A8Srgb)
+          .setFormat(format)
           .setMipLevels(image.mipLevels)
           .setArrayLayers(1)
           .setSamples(vk::SampleCountFlagBits::e1)
@@ -771,7 +774,7 @@ Image GPU::createTexture2D(const uint8_t* data, const vk::Extent2D& extent) {
       vk::ImageViewCreateInfo{}
           .setImage(image.image)
           .setViewType(vk::ImageViewType::e2D)
-          .setFormat(vk::Format::eR8G8B8A8Srgb)
+          .setFormat(format)
           .setSubresourceRange(imageSubresourceRange);
 
   uint32_t size = extent.width * extent.height * STBI_rgb_alpha;
@@ -1109,7 +1112,14 @@ Pipeline GPU::createPipeline(
       vk::VertexInputAttributeDescription{}
           .setBinding(0)
           .setLocation(3)
-          .setOffset(offsetof(Vertex, normals))
+          .setOffset(offsetof(Vertex, normal))
+          .setFormat(vk::Format::eR32G32B32Sfloat);
+
+  vk::VertexInputAttributeDescription vertexTangentAttributeDescription =
+      vk::VertexInputAttributeDescription{}
+          .setBinding(0)
+          .setLocation(4)
+          .setOffset(offsetof(Vertex, tangent))
           .setFormat(vk::Format::eR32G32B32Sfloat);
 
   std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
@@ -1117,6 +1127,7 @@ Pipeline GPU::createPipeline(
       vertexColorAttributeDescription,
       vertexTextureCoordAttributeDescription,
       vertexNormalsAttributeDescription,
+      vertexTangentAttributeDescription,
   };
 
   vk::PipelineShaderStageCreateInfo vertexShaderStage =
@@ -1511,9 +1522,9 @@ void GPU::createMultiSampleImage() {
 }
 
 void GPU::createImages() {
-  depthImage = createDepthImage(sampleCount);
+  depthImage = createDepthImage({sampleCount, vk::ImageUsageFlagBits::eDepthStencilAttachment, vkbSwapchain.extent});
   createMultiSampleImage();
-  shadowMapImage = createDepthImage(vk::SampleCountFlagBits::e1, vk::ImageUsageFlagBits::eSampled);
+  shadowMapImage = createDepthImage({vk::SampleCountFlagBits::e1, vk::ImageUsageFlagBits::eSampled, vkbSwapchain.extent});
 }
 
 void GPU::submit(const uint32_t imageIndex) {
@@ -1633,8 +1644,10 @@ void GPU::createShadowPipeline(
   vk::PipelineRasterizationStateCreateInfo rasterizationState =
       vk::PipelineRasterizationStateCreateInfo{}
           .setRasterizerDiscardEnable(0)
-          .setDepthClampEnable(0)
-          .setDepthBiasEnable(0)
+          .setDepthBiasEnable(1)
+          .setDepthBiasConstantFactor(1.25f)
+          .setDepthBiasSlopeFactor(1.75f)
+          .setCullMode(vk::CullModeFlagBits::eNone)
           .setPolygonMode(vk::PolygonMode::eFill)
           .setFrontFace(vk::FrontFace::eCounterClockwise)
           .setLineWidth(1.0f);
