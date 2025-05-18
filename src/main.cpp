@@ -33,16 +33,15 @@ int32_t main() {
   config.assets.push_back(
       "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
 
-  config.directionalLight.direction = glm::normalize(glm::vec3{0.0f, -300.0, 50.0});
+  config.directionalLight.direction = glm::normalize(glm::vec3{0.0f, -150.0f, 0.0});
   config.directionalLight.ambient = glm::vec3{0.4};
   config.directionalLight.diffuse = glm::vec3{0.8};
   config.directionalLight.specular = glm::vec3{0.4};
 
-  config.directionalLight.lightSpaceMatrix = glm::perspective(
-      glm::radians(60.0f), display.width / (float)display.height, 10.0f, 400.0f);
+  config.directionalLight.lightSpaceMatrix = glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 0.1f, 200.0f);
 
   config.directionalLight.lightSpaceMatrix[1][1] *= -1;
-  config.directionalLight.lightSpaceMatrix *= glm::lookAt(glm::vec3{0.0f, 300.0f, -50.0f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
+  config.directionalLight.lightSpaceMatrix *= glm::lookAt(glm::vec3{0.1f, 150.0f, 0.1f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
 
   PointLight pointLight{};
   pointLight.position = glm::vec3{0.0, 10.0, -50.0};

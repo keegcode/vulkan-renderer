@@ -256,8 +256,11 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutBinding normalMapBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(2);
 
+  vk::DescriptorSetLayoutBinding heightMapBinding =
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(3);
+
   std::vector<vk::DescriptorSetLayoutBinding> textureBindings{
-      diffuseMapBidning, specularMapBinding, normalMapBinding};
+      diffuseMapBidning, specularMapBinding, normalMapBinding, heightMapBinding};
 
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}

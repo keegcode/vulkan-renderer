@@ -21,6 +21,7 @@ frameData;
 layout(set = 0, binding = 0) uniform sampler2D diffuseMap;
 layout(set = 0, binding = 1) uniform sampler2D specularMap;
 layout(set = 0, binding = 2) uniform sampler2D normalMap;
+layout(set = 0, binding = 3) uniform sampler2D heightMap;
 
 layout(scalar, set = 1, binding = 0) uniform Material {
   vec3 specular;
@@ -30,7 +31,6 @@ layout(scalar, set = 1, binding = 0) uniform Material {
   vec3 color;
   float transmissionFactor;
   float roughness;
-  uint normalMapIdx;
 }
 material;
 

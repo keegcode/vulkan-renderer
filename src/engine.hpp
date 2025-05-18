@@ -92,10 +92,11 @@ struct Material {
   glm::vec3 color = glm::vec3{1.0};
   float transmissionFactor = 0.0f;
   float roughness = 1.0f;
-  uint32_t normalTextureIdx = 1;
   Buffer uniform;
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
+  uint32_t normalTextureIdx = 1;
+  uint32_t heightTextureIdx = 0;
   vk::CullModeFlagBits cullMode = vk::CullModeFlagBits::eBack;
   AlphaMode alphaMode = AlphaMode::Opaque;
 };
@@ -104,13 +105,15 @@ enum class TextureType {
   BaseColor,
   Specular,
   Cube,
-  Normal
+  Normal,
+  Height
 };
 
 struct Texture {
   Image image;
   TextureType type;
   vk::Sampler sampler;
+  std::string path;
 };
 struct Asset {
   std::vector<uint32_t> meshes;
@@ -136,22 +139,30 @@ struct EngineConfig {
 enum class GLTFMagFilter { Nearest = 9728, Linear = 9729 };
 
 enum class GLTFMinFilter {
-  Nearest = 9728,
-  Linear = 9729,
-  NearestMipmapNearest = 9984,
-  LinearMipmapNearest = 9985,
-  NearestMipmapLinear = 9986,
-  LinearMipmapLinear = 9987
+ Nearest = 9728,
+ Linear = 9729,
+ NearestMipmapNearest = 9984,
+ LinearMipmapNearest = 9985,
+ NearestMipmapLinear = 9986,
+ LinearMipmapLinear = 9987
+};
+
+struct AssimpSampler {
+ const aiTextureMapMode u;
+ const aiTextureMapMode v;
+ const GLTFMagFilter mag;
+ const GLTFMinFilter min;
+
+ vk::SamplerCreateInfo toVkSampler(
+   const Image& image,
+   float maxSamplerAnisotropy
+ ) const;
 };
 
 struct TextureCreateInfo {
   std::filesystem::path path;
-  vk::SamplerCreateInfo samplerCreateInfo;
+  AssimpSampler sampler;
   uint32_t textureIdx;
-  aiTextureMapMode mapModeU;
-  aiTextureMapMode mapModeV;
-  GLTFMagFilter magFilter;
-  GLTFMinFilter minFilter;
 };
 
 struct ImageData {
@@ -219,12 +230,7 @@ class Engine {
                     Mesh& mesh,
                     const aiMaterial* assimpMaterial,
                     std::vector<TextureCreateInfo>& tasks);
-  vk::SamplerCreateInfo extractGLTFSampler(const aiTextureMapMode u,
-                                           const aiTextureMapMode v,
-                                           const GLTFMagFilter mag,
-                                           const GLTFMinFilter min,
-                                           const Image& image) const;
-
+  std::pair<Texture, AssimpSampler> loadTexture(const aiMaterial* material, const aiTextureType textureType);
   Image loadImage(const std::filesystem::path& path, vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image loadCubemap(const std::string& type);
 
