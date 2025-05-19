@@ -15,5 +15,6 @@ layout(scalar, set = 0, binding = 0) uniform EntityBuffer {
 entity;
 
 void main() {
-  gl_Position = frameData.lightSpaceMatrix * entity.matrix * frameData.model * vec4(inPosition, 1.0);
+  gl_Position = frameData.lightSpaceMatrix * entity.matrix * frameData.model *
+                vec4(inPosition, 1.0);
 }

@@ -26,7 +26,8 @@ layout(scalar, set = 5, binding = 0) uniform Transform {
   mat4 model;
   mat4 view;
   mat4 projection;
-} transform;
+}
+transform;
 
 layout(scalar, set = 2, binding = 0) uniform DirectionalLight {
   vec3 direction;

@@ -89,12 +89,15 @@ struct ImageMemoryBarrierOptions {
 
 struct DepthImageOptions {
   vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1;
-  vk::ImageUsageFlagBits usage = vk::ImageUsageFlagBits::eDepthStencilAttachment;
+  vk::ImageUsageFlagBits usage =
+      vk::ImageUsageFlagBits::eDepthStencilAttachment;
   vk::Extent2D extent;
 };
 
 class GPU {
  public:
+  uint32_t shadowSize;
+
   Display display;
 
   Pipeline entitiesPipeline;
@@ -146,7 +149,7 @@ class GPU {
   vk::Viewport viewport;
   vk::Rect2D scissors;
 
-  GPU(const Display& display);
+  GPU(const Display& d, const uint32_t s);
 
   void createInstance();
   void pickPhysicalDevice();
@@ -211,7 +214,9 @@ class GPU {
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
   Image createDepthImage(const DepthImageOptions& options);
-  Image createTexture2D(const uint8_t* data, const vk::Extent2D& extent, const vk::Format format = vk::Format::eR8G8B8A8Srgb);
+  Image createTexture2D(const uint8_t* data,
+                        const vk::Extent2D& extent,
+                        const vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
                              const vk::Extent2D& extent);
   void createImages();
@@ -229,7 +234,8 @@ class GPU {
   Pipeline createPipeline(
       const Shader& vertexShader,
       const Shader& fragmentShader,
-      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts, const uint32_t pushConstantSize) const;
+      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts,
+      const uint32_t pushConstantSize) const;
 
   void createShadowPipeline();
 

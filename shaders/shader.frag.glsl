@@ -80,7 +80,8 @@ layout(scalar, set = 5, binding = 0) uniform Transform {
   mat4 model;
   mat4 view;
   mat4 projection;
-} transform;
+}
+transform;
 
 float calcShadow() {
   vec4 sampleLightPos = inLightPos / inLightPos.w;
@@ -91,7 +92,7 @@ float calcShadow() {
   if (currentDepth > 1.0) {
     return 0.0;
   }
-  
+
   return texture(shadowMap, sampleLightPos.xyz).r;
 }
 
@@ -111,7 +112,7 @@ vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
       directionalLight.ambient * vec3(texture(diffuseMap, inTexCoord));
 
   float shadow = calcShadow();
-  
+
   return (ambient + ((diffuse + specular) * shadow));
 }
 
@@ -187,9 +188,9 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
 }
 
 float linearizeDepth(float depth) {
-	float zNear = 0.5f; 
-	float zFar  = 500.0f;
-	return (2.0 * zNear) / (zFar + zNear - depth * (zFar - zNear));
+  float zNear = 0.5f;
+  float zFar = 500.0f;
+  return (2.0 * zNear) / (zFar + zNear - depth * (zFar - zNear));
 }
 
 void main() {
@@ -221,5 +222,7 @@ void main() {
   float c = linearizeDepth(gl_FragCoord.z);
   vec4 fog = vec4(c, c, c, 1.0);
 
-  outColor = mix(inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0), fog, c * 0.03);
+  outColor =
+      mix(inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0), fog,
+          c * 0.03);
 }

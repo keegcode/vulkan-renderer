@@ -9,7 +9,7 @@
 #include "stb_image.h"
 #include "utils.hpp"
 
-GPU::GPU(const Display& d) : display{d} {
+GPU::GPU(const Display& d, const uint32_t s) : shadowSize{s}, display{d} {
   createInstance();
   pickPhysicalDevice();
   pickDevice();
@@ -31,8 +31,8 @@ void GPU::createInstance() {
           .set_app_name("VkRenderer")
           .require_api_version(1, 3)
           .enable_extensions(display.vulkanExtensions)
-          //.enable_validation_layers(true)
-          //.use_default_debug_messenger()
+          .enable_validation_layers(true)
+          .use_default_debug_messenger()
           .build();
 
   VKB_ASSERT(instanceResult);
@@ -74,8 +74,7 @@ void GPU::pickPhysicalDevice() {
   std::vector<const char*> extensions = {
       vk::EXTDescriptorBufferExtensionName,
       vk::EXTExtendedDynamicState3ExtensionName,
-      vk::EXTScalarBlockLayoutExtensionName
-  };
+      vk::EXTScalarBlockLayoutExtensionName};
 
   vk::PhysicalDeviceFeatures features =
       vk::PhysicalDeviceFeatures{}.setSampleRateShading(1).setSamplerAnisotropy(
@@ -239,7 +238,6 @@ void GPU::createDescriptorSetLayouts() {
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
-
   vk::DescriptorSetLayoutBinding uniformBinding =
       vk::DescriptorSetLayoutBinding{}
           .setBinding(0)
@@ -260,7 +258,8 @@ void GPU::createDescriptorSetLayouts() {
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(3);
 
   std::vector<vk::DescriptorSetLayoutBinding> textureBindings{
-      diffuseMapBidning, specularMapBinding, normalMapBinding, heightMapBinding};
+      diffuseMapBidning, specularMapBinding, normalMapBinding,
+      heightMapBinding};
 
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
@@ -290,9 +289,8 @@ void GPU::createDescriptorSetLayouts() {
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
 
   std::vector<vk::DescriptorSetLayoutBinding> globalMapBindings{
-    vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0),
-    vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1)
-  };
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0),
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1)};
 
   std::vector<vk::DescriptorSetLayoutBinding> skyboxBindings{skyboxBinding};
 
@@ -686,7 +684,7 @@ void GPU::endSingleSubmitCommand(
 
 Image GPU::createDepthImage(const DepthImageOptions& options) {
   Image image{};
-  image.extent = vk::Extent3D{vkbSwapchain.extent}.setDepth(1);
+  image.extent = vk::Extent3D{options.extent}.setDepth(1);
 
   VkImageCreateInfo imageCreateInfo =
       vk::ImageCreateInfo{}
@@ -696,7 +694,8 @@ Image GPU::createDepthImage(const DepthImageOptions& options) {
           .setArrayLayers(1)
           .setSamples(options.samples)
           .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment | options.usage)
+          .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                    options.usage)
           .setSharingMode(vk::SharingMode::eExclusive)
           .setInitialLayout(vk::ImageLayout::eUndefined)
           .setExtent(image.extent);
@@ -733,7 +732,9 @@ Image GPU::createDepthImage(const DepthImageOptions& options) {
   return image;
 }
 
-Image GPU::createTexture2D(const uint8_t* data, const vk::Extent2D& extent, const vk::Format format) {
+Image GPU::createTexture2D(const uint8_t* data,
+                           const vk::Extent2D& extent,
+                           const vk::Format format) {
   Image image{};
   image.extent = vk::Extent3D{extent}.setDepth(1);
   image.mipLevels = utils::getMipLevels(extent.height, extent.width);
@@ -1079,8 +1080,10 @@ void GPU::destroyShader(const Shader& shader) const {
 Pipeline GPU::createPipeline(
     const Shader& vertexShader,
     const Shader& fragmentShader,
-    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts, const uint32_t pushConstantSize) const {
-  assert(pushConstantSize <= physicalDeviceProperties.properties.limits.maxPushConstantsSize);
+    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts,
+    const uint32_t pushConstantSize) const {
+  assert(pushConstantSize <=
+         physicalDeviceProperties.properties.limits.maxPushConstantsSize);
 
   Pipeline pipeline{};
 
@@ -1126,10 +1129,8 @@ Pipeline GPU::createPipeline(
           .setFormat(vk::Format::eR32G32B32Sfloat);
 
   std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
-      vertexPositionAttributeDescription,
-      vertexColorAttributeDescription,
-      vertexTextureCoordAttributeDescription,
-      vertexNormalsAttributeDescription,
+      vertexPositionAttributeDescription,     vertexColorAttributeDescription,
+      vertexTextureCoordAttributeDescription, vertexNormalsAttributeDescription,
       vertexTangentAttributeDescription,
   };
 
@@ -1353,11 +1354,13 @@ void GPU::beginShadowPass() {
           .setImageMemoryBarriers(imageMemoryBarriers)
           .setImageMemoryBarrierCount(1);
 
-  vk::RenderingInfo renderingInfo = vk::RenderingInfo{}
-                                        .setRenderArea(scissors)
-                                        .setLayerCount(1)
-                                        .setViewMask(0)
-                                        .setPDepthAttachment(&depthAttachment);
+  vk::RenderingInfo renderingInfo =
+      vk::RenderingInfo{}
+          .setRenderArea(
+              vk::Rect2D{}.setExtent(vk::Extent2D{shadowSize, shadowSize}))
+          .setLayerCount(1)
+          .setViewMask(0)
+          .setPDepthAttachment(&depthAttachment);
 
   commandBuffer.pipelineBarrier2(dependencyInfo);
   commandBuffer.beginRendering(renderingInfo);
@@ -1525,9 +1528,13 @@ void GPU::createMultiSampleImage() {
 }
 
 void GPU::createImages() {
-  depthImage = createDepthImage({sampleCount, vk::ImageUsageFlagBits::eDepthStencilAttachment, vkbSwapchain.extent});
+  depthImage = createDepthImage(
+      {sampleCount, vk::ImageUsageFlagBits::eDepthStencilAttachment,
+       vkbSwapchain.extent});
   createMultiSampleImage();
-  shadowMapImage = createDepthImage({vk::SampleCountFlagBits::e1, vk::ImageUsageFlagBits::eSampled, vkbSwapchain.extent});
+  shadowMapImage = createDepthImage({vk::SampleCountFlagBits::e1,
+                                     vk::ImageUsageFlagBits::eSampled,
+                                     vk::Extent2D{shadowSize, shadowSize}});
 }
 
 void GPU::submit(const uint32_t imageIndex) {
@@ -1577,11 +1584,12 @@ void GPU::submit(const uint32_t imageIndex) {
   }
 }
 
-void GPU::createShadowPipeline(
-) {
-  assert(sizeof(ShadowPassFrameData) <= physicalDeviceProperties.properties.limits.maxPushConstantsSize);
+void GPU::createShadowPipeline() {
+  assert(sizeof(ShadowPassFrameData) <=
+         physicalDeviceProperties.properties.limits.maxPushConstantsSize);
 
-  Shader vertexShader = loadShader("./shaders/shadows.vert.glsl.spv", vk::ShaderStageFlagBits::eVertex);
+  Shader vertexShader = loadShader("./shaders/shadows.vert.glsl.spv",
+                                   vk::ShaderStageFlagBits::eVertex);
   std::vector<vk::DescriptorSetLayout> setLayouts{uniformLayout};
 
   Pipeline pipeline{};
@@ -1648,8 +1656,8 @@ void GPU::createShadowPipeline(
       vk::PipelineRasterizationStateCreateInfo{}
           .setRasterizerDiscardEnable(0)
           .setDepthBiasEnable(1)
-          .setDepthBiasConstantFactor(1.25f)
-          .setDepthBiasSlopeFactor(1.75f)
+          .setDepthBiasConstantFactor(0.0f)
+          .setDepthBiasSlopeFactor(1.0)
           .setCullMode(vk::CullModeFlagBits::eNone)
           .setPolygonMode(vk::PolygonMode::eFill)
           .setFrontFace(vk::FrontFace::eCounterClockwise)
@@ -1668,8 +1676,8 @@ void GPU::createShadowPipeline(
           .setDepthBoundsTestEnable(0)
           .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
 
-  std::vector<vk::DynamicState> dynamicStates{
-      vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+  std::vector<vk::DynamicState> dynamicStates{vk::DynamicState::eViewport,
+                                              vk::DynamicState::eScissor};
 
   vk::PipelineDynamicStateCreateInfo dynamicState =
       vk::PipelineDynamicStateCreateInfo{}
@@ -1716,9 +1724,8 @@ void GPU::createShadowPipeline(
 
 void GPU::createPipelines() {
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      textureLayout, uniformLayout, lightLayout,
-      uniformLayout, globalMapLayout, uniformLayout 
-  };
+      textureLayout, uniformLayout,   lightLayout,
+      uniformLayout, globalMapLayout, uniformLayout};
 
   entitiesPipeline =
       createPipeline(loadShader("./shaders/shader.vert.glsl.spv",
@@ -1727,9 +1734,7 @@ void GPU::createPipelines() {
                                 vk::ShaderStageFlagBits::eFragment),
                      descriptorSetLayouts, sizeof(MainPassFrameData));
 
-  descriptorSetLayouts = {
-      skyboxLayout, uniformLayout
-  };
+  descriptorSetLayouts = {skyboxLayout, uniformLayout};
 
   skyboxPipeline =
       createPipeline(loadShader("./shaders/cubemap.vert.glsl.spv",

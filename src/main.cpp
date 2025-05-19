@@ -11,10 +11,14 @@
 #include <glm/ext/matrix_transform.hpp>
 
 int32_t main() {
+  uint32_t shadowSize = 1024;
+
   Display display{};
-  GPU gpu{display};
+  GPU gpu{display, shadowSize};
 
   EngineConfig config{};
+
+  config.shadowSize = shadowSize;
 
   glm::mat4 model{1.0f};
   glm::mat4 view{1.0f};
@@ -33,15 +37,18 @@ int32_t main() {
   config.assets.push_back(
       "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
 
-  config.directionalLight.direction = glm::normalize(glm::vec3{0.0f, -150.0f, 0.0});
-  config.directionalLight.ambient = glm::vec3{0.4};
+  config.directionalLight.direction =
+      glm::normalize(glm::vec3{0.0f, -150.0f, 0.0});
+  config.directionalLight.ambient = glm::vec3{0.2};
   config.directionalLight.diffuse = glm::vec3{0.8};
   config.directionalLight.specular = glm::vec3{0.4};
 
-  config.directionalLight.lightSpaceMatrix = glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 0.1f, 200.0f);
+  config.directionalLight.lightSpaceMatrix =
+      glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 0.1f, 400.0f);
 
   config.directionalLight.lightSpaceMatrix[1][1] *= -1;
-  config.directionalLight.lightSpaceMatrix *= glm::lookAt(glm::vec3{0.1f, 150.0f, 0.1f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
+  config.directionalLight.lightSpaceMatrix *= glm::lookAt(
+      glm::vec3{0.1f, 350.0f, 0.1f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
 
   PointLight pointLight{};
   pointLight.position = glm::vec3{0.0, 10.0, -50.0};
@@ -51,7 +58,7 @@ int32_t main() {
   pointLight.constant = 1.0;
   pointLight.linear = 0.0;
   pointLight.quadratic = 0.000016;
-  //config.pointLights.push_back(pointLight);
+  // config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0, 100.0, 5.0f};

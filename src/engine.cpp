@@ -17,14 +17,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtx/norm.hpp>
 #include <glm/matrix.hpp>
 #include <thread>
-#include <vector>
-#include <filesystem>
 #include <unordered_map>
+#include <vector>
 
 #include <glm/common.hpp>
 #include <glm/detail/qualifier.hpp>
@@ -63,9 +63,9 @@ void Engine::drawFrame(float deltaTime) {
 
   gpu.resetFence();
   gpu.commandBuffer.reset();
-  
+
   gpu.beginRecordingCommands();
-  
+
   gpu.beginShadowPass();
 
   transform.model = transform.model;
@@ -73,7 +73,9 @@ void Engine::drawFrame(float deltaTime) {
       glm::lookAt(camera.position, camera.position + camera.front, camera.up);
   transform.projection = transform.projection;
 
-  vmaCopyMemoryToAllocation(gpu.allocator, &transform, transform.uniform.allocation, 0, offsetof(Transform, uniform));
+  vmaCopyMemoryToAllocation(gpu.allocator, &transform,
+                            transform.uniform.allocation, 0,
+                            offsetof(Transform, uniform));
 
   ShadowPassFrameData shadowPassFrameData{};
   shadowPassFrameData.model = transform.model;
@@ -93,7 +95,9 @@ void Engine::drawFrame(float deltaTime) {
   drawEntities(mainPassFrameData);
 
   SkyboxFrameData skyboxFrameData{};
-  skyboxFrameData.matrix = transform.projection * glm::mat4{glm::mat3{transform.view}} * transform.model;
+  skyboxFrameData.matrix = transform.projection *
+                           glm::mat4{glm::mat3{transform.view}} *
+                           transform.model;
 
   drawSkybox(skyboxFrameData);
 
@@ -254,7 +258,7 @@ void Engine::destroy() {
   for (Entity& e : entities) {
     gpu.destroyBuffer(e.uniform);
   }
-  
+
   gpu.destroyBuffer(transform.uniform);
   gpu.destroyBuffer(directionalLight.uniform);
 
@@ -284,6 +288,7 @@ void Engine::loadConfig(const EngineConfig& config) {
 
   transform = config.transform;
   directionalLight = config.directionalLight;
+  shadowSize = config.shadowSize;
 
   for (size_t i = 0; i < config.pointLights.size(); i++) {
     PointLight light = config.pointLights[i];
@@ -308,7 +313,9 @@ void Engine::loadConfig(const EngineConfig& config) {
   for (size_t i = 0; i < lightPositions.size(); i++) {
     Entity entity{};
     entity.matrix = glm::scale(
-        glm::translate(glm::mat4{1.0f}, lightPositions[i] + glm::vec3{0.0f, 20.0f, 0.0f}), glm::vec3{1.0});
+        glm::translate(glm::mat4{1.0f},
+                       lightPositions[i] + glm::vec3{0.0f, 20.0f, 0.0f}),
+        glm::vec3{1.0});
     entity.assetIdx = 0;
     entities.push_back(entity);
   }
@@ -334,7 +341,8 @@ void Engine::loadStatic() {
   texture.sampler = gpu.createSampler(samplerCreateInfo);
 
   Texture normal{};
-  normal.image = loadImage("./textures/default_normal.png", vk::Format::eR8G8B8A8Unorm);
+  normal.image =
+      loadImage("./textures/default_normal.png", vk::Format::eR8G8B8A8Unorm);
   normal.type = TextureType::Normal;
   normal.sampler = gpu.createSampler(samplerCreateInfo);
 
@@ -381,8 +389,9 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   Assimp::Importer importer{};
 
   const aiScene* scene = importer.ReadFile(
-      path.string().c_str(),
-      aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_OptimizeMeshes | aiProcess_CalcTangentSpace);
+      path.string().c_str(), aiProcess_Triangulate | aiProcess_FlipUVs |
+                                 aiProcess_OptimizeMeshes |
+                                 aiProcess_CalcTangentSpace);
 
   assert(scene != nullptr);
 
@@ -420,12 +429,15 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   for (const TextureCreateInfo& createInfo : createInfos) {
     ImageData image = cache[createInfo.path.string()];
     Texture& texture = textures[createInfo.textureIdx];
-    vk::Format format = texture.type == TextureType::Normal ? vk::Format::eR8G8B8A8Unorm : vk::Format::eR8G8B8A8Srgb;
+    vk::Format format = texture.type == TextureType::Normal
+                            ? vk::Format::eR8G8B8A8Unorm
+                            : vk::Format::eR8G8B8A8Srgb;
     texture.image = gpu.createTexture2D(
         image.data,
         vk::Extent2D{}.setWidth(image.width).setHeight(image.height), format);
-    texture.sampler =
-        gpu.createSampler(createInfo.sampler.toVkSampler(texture.image, gpu.physicalDeviceProperties.properties.limits.maxSamplerAnisotropy));
+    texture.sampler = gpu.createSampler(createInfo.sampler.toVkSampler(
+        texture.image,
+        gpu.physicalDeviceProperties.properties.limits.maxSamplerAnisotropy));
   }
 
   importer.FreeScene();
@@ -447,7 +459,7 @@ void Engine::loadMesh(Asset& asset,
     vertex.position[0] = assimpMesh->mVertices[j].x;
     vertex.position[1] = assimpMesh->mVertices[j].y;
     vertex.position[2] = assimpMesh->mVertices[j].z;
-    
+
     if (assimpMesh->HasNormals()) {
       vertex.normal[0] = assimpMesh->mNormals[j].x;
       vertex.normal[1] = assimpMesh->mNormals[j].y;
@@ -458,7 +470,7 @@ void Engine::loadMesh(Asset& asset,
       vertex.tangent[2] = assimpMesh->mTangents[j].z;
     }
 
-    vertex.uv[0] = 0.0f; 
+    vertex.uv[0] = 0.0f;
     vertex.uv[1] = 1.0f;
 
     if (assimpMesh->HasTextureCoords(0)) {
@@ -568,32 +580,40 @@ void Engine::loadMaterial(Asset& asset,
       aiReturn_SUCCESS) {
     material.roughness = roughness;
   };
-  
+
   if (assimpMaterial->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
-    auto [diffuse, diffuseSampler] = loadTexture(assimpMaterial, aiTextureType_DIFFUSE);
+    auto [diffuse, diffuseSampler] =
+        loadTexture(assimpMaterial, aiTextureType_DIFFUSE);
     material.diffuseTextureIdx = textures.size();
-    createInfos.push_back({asset.path.parent_path().append(diffuse.path), diffuseSampler, material.diffuseTextureIdx});
+    createInfos.push_back({asset.path.parent_path().append(diffuse.path),
+                           diffuseSampler, material.diffuseTextureIdx});
     textures.push_back(diffuse);
   }
 
   if (assimpMaterial->GetTextureCount(aiTextureType_SPECULAR) > 0) {
-    auto [specular, specularSampler] = loadTexture(assimpMaterial, aiTextureType_SPECULAR);
+    auto [specular, specularSampler] =
+        loadTexture(assimpMaterial, aiTextureType_SPECULAR);
     material.specularTextureIdx = textures.size();
-    createInfos.push_back({asset.path.parent_path().append(specular.path), specularSampler, material.specularTextureIdx});
+    createInfos.push_back({asset.path.parent_path().append(specular.path),
+                           specularSampler, material.specularTextureIdx});
     textures.push_back(specular);
   }
 
   if (assimpMaterial->GetTextureCount(aiTextureType_NORMALS) > 0) {
-    auto [normal, normalSampler] = loadTexture(assimpMaterial, aiTextureType_NORMALS);
+    auto [normal, normalSampler] =
+        loadTexture(assimpMaterial, aiTextureType_NORMALS);
     material.normalTextureIdx = textures.size();
-    createInfos.push_back({asset.path.parent_path().append(normal.path), normalSampler, material.normalTextureIdx});
+    createInfos.push_back({asset.path.parent_path().append(normal.path),
+                           normalSampler, material.normalTextureIdx});
     textures.push_back(normal);
   }
 
   if (assimpMaterial->GetTextureCount(aiTextureType_HEIGHT) > 0) {
-    auto [height, heightSampler] = loadTexture(assimpMaterial, aiTextureType_HEIGHT);
+    auto [height, heightSampler] =
+        loadTexture(assimpMaterial, aiTextureType_HEIGHT);
     material.heightTextureIdx = textures.size();
-    createInfos.push_back({asset.path.parent_path().append(height.path), heightSampler, material.heightTextureIdx});
+    createInfos.push_back({asset.path.parent_path().append(height.path),
+                           heightSampler, material.heightTextureIdx});
     textures.push_back(height);
   }
 
@@ -648,10 +668,7 @@ Image Engine::loadCubemap(const std::string& type) {
 void Engine::createDescriptors() {
   skyboxDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
   globalMapDescriptor = gpu.createTextureDescriptor(1, gpu.globalMapLayout);
-  transformDescriptor = gpu.createUniformDescriptor(
-      1, 
-      gpu.uniformLayout
-  );
+  transformDescriptor = gpu.createUniformDescriptor(1, gpu.uniformLayout);
   lightsDescriptor = gpu.createUniformDescriptor(
       spotLights.size() + pointLights.size() + 1, gpu.lightLayout);
   entitiesDescriptor =
@@ -675,8 +692,7 @@ void Engine::prepareUniformsAndDescriptors() {
                        vk::BufferUsageFlagBits::eUniformBuffer |
                            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  gpu.setDescriptorUniformBuffer(transformDescriptor, transform.uniform, 0,
-                                 0);
+  gpu.setDescriptorUniformBuffer(transformDescriptor, transform.uniform, 0, 0);
 
   directionalLight.uniform =
       gpu.createBuffer(&directionalLight, offsetof(DirectionalLight, uniform),
@@ -686,7 +702,7 @@ void Engine::prepareUniformsAndDescriptors() {
   gpu.setDescriptorUniformBuffer(lightsDescriptor, directionalLight.uniform, 0,
                                  0);
 
-    for (size_t i = 0; i < pointLights.size(); i++) {
+  for (size_t i = 0; i < pointLights.size(); i++) {
     PointLight light = pointLights[i];
 
     light.uniform =
@@ -746,7 +762,6 @@ void Engine::prepareUniformsAndDescriptors() {
   }
 }
 
-
 void Engine::loadSkybox() {
   Image cubemap = loadCubemap("skybox");
 
@@ -772,19 +787,32 @@ void Engine::loadSkybox() {
   skybox = tex;
 }
 
-void Engine::drawShadows(const ShadowPassFrameData& frameData) { 
+void Engine::drawShadows(const ShadowPassFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.shadowsPipeline.pipeline);
 
   std::vector<vk::DeviceSize> offsets = {0};
 
-  gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
-  gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
+  vk::Extent2D extent =
+      vk::Extent2D{}.setWidth(shadowSize).setHeight(shadowSize);
 
-  gpu.commandBuffer.pushConstants(
-      gpu.shadowsPipeline.layout,
-      vk::ShaderStageFlagBits::eVertex, 0,
-      sizeof(ShadowPassFrameData), &frameData);
+  vk::Viewport viewport = vk::Viewport{}
+                              .setWidth(extent.width)
+                              .setHeight(extent.height)
+                              .setMaxDepth(1.0)
+                              .setMinDepth(0.0)
+                              .setX(0.0)
+                              .setY(0.0);
+
+  vk::Rect2D scissors = vk::Rect2D{}.setExtent(
+      vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
+
+  gpu.commandBuffer.setViewport(0, 1, &viewport);
+  gpu.commandBuffer.setScissor(0, 1, &scissors);
+
+  gpu.commandBuffer.pushConstants(gpu.shadowsPipeline.layout,
+                                  vk::ShaderStageFlagBits::eVertex, 0,
+                                  sizeof(ShadowPassFrameData), &frameData);
 
   for (size_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
@@ -875,9 +903,8 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
 }
 
 vk::SamplerCreateInfo AssimpSampler::toVkSampler(
-  const Image& image,
-  float maxSamplerAnisotropy
-) const {
+    const Image& image,
+    float maxSamplerAnisotropy) const {
   vk::SamplerCreateInfo samplerCreateInfo =
       vk::SamplerCreateInfo{}
           .setMaxLod(image.mipLevels)
@@ -890,8 +917,7 @@ vk::SamplerCreateInfo AssimpSampler::toVkSampler(
           .setAddressModeV(vk::SamplerAddressMode::eRepeat)
           .setAddressModeW(vk::SamplerAddressMode::eRepeat)
           .setAnisotropyEnable(1)
-          .setMaxAnisotropy(
-              std::min(16.0f, maxSamplerAnisotropy))
+          .setMaxAnisotropy(std::min(16.0f, maxSamplerAnisotropy))
           .setCompareEnable(0);
 
   switch (mag) {
@@ -980,7 +1006,8 @@ void Engine::drawMesh(const uint32_t meshIdx) {
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
 
-void Engine::drawEntityShadow(const uint32_t entityIdx, const uint32_t meshIdx) {
+void Engine::drawEntityShadow(const uint32_t entityIdx,
+                              const uint32_t meshIdx) {
   vk::DeviceSize offsets[1] = {0};
   Mesh& mesh = meshes[meshIdx];
 
@@ -992,7 +1019,8 @@ void Engine::drawEntityShadow(const uint32_t entityIdx, const uint32_t meshIdx) 
   gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
 
   std::vector<uint32_t> descriptorIndices{0};
-  std::vector<vk::DeviceSize> descriptorOffsets{entitiesDescriptor.size * entityIdx};
+  std::vector<vk::DeviceSize> descriptorOffsets{entitiesDescriptor.size *
+                                                entityIdx};
 
   gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
   gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
@@ -1022,12 +1050,11 @@ void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
 
   std::vector<vk::DeviceSize> descriptorOffsets{
       texturesDescriptor.size * mesh.materialIdx,
-      materialsDescriptor.size * mesh.materialIdx, 
+      materialsDescriptor.size * mesh.materialIdx,
       0,
-      entitiesDescriptor.size * entityIdx, 
-      0, 
-      0
-  };
+      entitiesDescriptor.size * entityIdx,
+      0,
+      0};
 
   gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
       vk::PipelineBindPoint::eGraphics, gpu.entitiesPipeline.layout, 0, 6,
@@ -1036,13 +1063,14 @@ void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
 
-std::pair<Texture, AssimpSampler> Engine::loadTexture(const aiMaterial* material, const aiTextureType textureType) {
+std::pair<Texture, AssimpSampler> Engine::loadTexture(
+    const aiMaterial* material,
+    const aiTextureType textureType) {
   Texture texture{};
   texture.type = TextureType::Specular;
 
   aiString texturePath;
-  material->GetTexture(textureType, 0,
-                             &texturePath);
+  material->GetTexture(textureType, 0, &texturePath);
 
   texture.path = texturePath.C_Str();
 
@@ -1050,14 +1078,10 @@ std::pair<Texture, AssimpSampler> Engine::loadTexture(const aiMaterial* material
   GLTFMinFilter min;
   GLTFMagFilter mag;
 
-  material->Get(AI_MATKEY_MAPPINGMODE_U(textureType, 0),
-                      mapModeU);
-  material->Get(AI_MATKEY_MAPPINGMODE_V(textureType, 0),
-                      mapModeV);
-  material->Get(
-      AI_MATKEY_GLTF_MAPPINGFILTER_MAG(textureType, 0), min);
-  material->Get(
-      AI_MATKEY_GLTF_MAPPINGFILTER_MIN(textureType, 0), mag);
+  material->Get(AI_MATKEY_MAPPINGMODE_U(textureType, 0), mapModeU);
+  material->Get(AI_MATKEY_MAPPINGMODE_V(textureType, 0), mapModeV);
+  material->Get(AI_MATKEY_GLTF_MAPPINGFILTER_MAG(textureType, 0), min);
+  material->Get(AI_MATKEY_GLTF_MAPPINGFILTER_MIN(textureType, 0), mag);
 
   return std::make_pair(texture, AssimpSampler{mapModeU, mapModeV, mag, min});
 }

@@ -101,13 +101,7 @@ struct Material {
   AlphaMode alphaMode = AlphaMode::Opaque;
 };
 
-enum class TextureType {
-  BaseColor,
-  Specular,
-  Cube,
-  Normal,
-  Height
-};
+enum class TextureType { BaseColor, Specular, Cube, Normal, Height };
 
 struct Texture {
   Image image;
@@ -119,7 +113,6 @@ struct Asset {
   std::vector<uint32_t> meshes;
   std::filesystem::path path;
 };
-
 
 struct Entity {
   glm::mat4 matrix = glm::mat4{1.0f};
@@ -134,29 +127,28 @@ struct EngineConfig {
   std::vector<SpotLight> spotLights;
   std::vector<Entity> entities;
   std::vector<std::filesystem::path> assets;
+  uint32_t shadowSize;
 };
 
 enum class GLTFMagFilter { Nearest = 9728, Linear = 9729 };
 
 enum class GLTFMinFilter {
- Nearest = 9728,
- Linear = 9729,
- NearestMipmapNearest = 9984,
- LinearMipmapNearest = 9985,
- NearestMipmapLinear = 9986,
- LinearMipmapLinear = 9987
+  Nearest = 9728,
+  Linear = 9729,
+  NearestMipmapNearest = 9984,
+  LinearMipmapNearest = 9985,
+  NearestMipmapLinear = 9986,
+  LinearMipmapLinear = 9987
 };
 
 struct AssimpSampler {
- const aiTextureMapMode u;
- const aiTextureMapMode v;
- const GLTFMagFilter mag;
- const GLTFMinFilter min;
+  const aiTextureMapMode u;
+  const aiTextureMapMode v;
+  const GLTFMagFilter mag;
+  const GLTFMinFilter min;
 
- vk::SamplerCreateInfo toVkSampler(
-   const Image& image,
-   float maxSamplerAnisotropy
- ) const;
+  vk::SamplerCreateInfo toVkSampler(const Image& image,
+                                    float maxSamplerAnisotropy) const;
 };
 
 struct TextureCreateInfo {
@@ -172,7 +164,6 @@ struct ImageData {
 
 class Engine {
  public:
-
   Transform transform;
 
   std::vector<Entity> entities;
@@ -189,6 +180,8 @@ class Engine {
 
   Texture shadowMap;
   Texture skybox;
+
+  uint32_t shadowSize;
 
   Descriptor entitiesDescriptor;
   Descriptor materialsDescriptor;
@@ -230,8 +223,11 @@ class Engine {
                     Mesh& mesh,
                     const aiMaterial* assimpMaterial,
                     std::vector<TextureCreateInfo>& tasks);
-  std::pair<Texture, AssimpSampler> loadTexture(const aiMaterial* material, const aiTextureType textureType);
-  Image loadImage(const std::filesystem::path& path, vk::Format format = vk::Format::eR8G8B8A8Srgb);
+  std::pair<Texture, AssimpSampler> loadTexture(
+      const aiMaterial* material,
+      const aiTextureType textureType);
+  Image loadImage(const std::filesystem::path& path,
+                  vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image loadCubemap(const std::string& type);
 
   void createDescriptors();
