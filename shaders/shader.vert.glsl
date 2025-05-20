@@ -9,11 +9,10 @@ layout(location = 4) in vec3 inTangent;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec2 outTexCoord;
-layout(location = 2) out vec3 outPos;
-layout(location = 3) out vec4 outModelPos;
-layout(location = 4) out vec3 outNormal;
-layout(location = 5) out vec3 outViewPos;
-layout(location = 6) out mat3 outTBN;
+layout(location = 2) out vec4 outPos;
+layout(location = 3) out vec3 outNormal;
+layout(location = 4) out vec3 outViewPos;
+layout(location = 5) out mat3 outTBN;
 
 layout(scalar, push_constant) uniform FrameData {
   vec3 camera;
@@ -46,8 +45,7 @@ void main() {
   outTexCoord = inTexCoord;
   outColor = inColor;
   outNormal = vec3(normal);
-  outPos = vec3(pos);
-  outModelPos = (transform.model * vec4(inPosition, 1.0));
+  outPos = pos;
   outViewPos = frameData.camera;
   outTBN = mat3(T, B, N);
 

@@ -37,7 +37,7 @@ struct Camera {
 
   CameraMode mode = CameraMode::Fixed;
 
-  float velocity = 0.1f;
+  float velocity = 7.0f;
   float sensitivity = 0.1f;
 };
 
@@ -51,11 +51,11 @@ struct Mesh {
 enum class AlphaMode { Opaque, Blend, Mask };
 
 struct Material {
-  glm::vec3 specular = glm::vec3{1.0};
-  float shininess = 32.0;
-  glm::vec3 emissive = glm::vec3{0.0};
-  float alphaCutoff = 0.001;
-  glm::vec3 color = glm::vec3{1.0};
+  glm::vec3 specular = glm::vec3{1.0f};
+  float shininess = 32.0f;
+  glm::vec3 emissive = glm::vec3{0.0f};
+  float alphaCutoff = 0.001f;
+  glm::vec3 color = glm::vec3{1.0f};
   float transmissionFactor = 0.0f;
   float roughness = 1.0f;
   Buffer uniform;
@@ -82,13 +82,12 @@ struct SpotLight {
   glm::vec3 position;
   float linear;
   glm::vec3 ambient;
-  float quadratic;
   glm::vec3 diffuse;
   float cutOff;
   glm::vec3 specular;
   float outerCutOff;
-  glm::mat4 lightSpaceMatrix;
   uint32_t shadowMapIdx;
+  glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };
 
@@ -100,8 +99,8 @@ struct PointLight {
   glm::vec3 diffuse;
   float quadratic;
   glm::vec3 specular;
-  glm::mat4 lightSpaceMatrix;
   uint32_t shadowMapIdx;
+  glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };
 
@@ -110,8 +109,8 @@ struct DirectionalLight {
   glm::vec3 ambient;
   glm::vec3 diffuse;
   glm::vec3 specular;
-  glm::mat4 lightSpaceMatrix;
   uint32_t shadowMapIdx;
+  glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };
 
@@ -164,7 +163,7 @@ struct TextureCreateInfo {
 };
 
 struct ImageData {
-  int width, height;
+  uint32_t width, height;
   uint8_t* data;
 };
 
@@ -175,6 +174,7 @@ class Engine {
   std::vector<Entity> entities;
   std::vector<Material> materials;
   std::vector<Texture> textures;
+  std::vector<Texture> shadowMaps;
   std::vector<Asset> assets;
   std::vector<Mesh> meshes;
 
@@ -199,9 +199,9 @@ class Engine {
 
   Engine(const Display& display, const GPU& gpu, const EngineConfig& config);
 
-  void drawFrame(float deltaTime);
+  void drawFrame(uint64_t deltaTime);
   void drawSkybox(const SkyboxFrameData& data);
-  void processInput(float deltaTime);
+  void processInput(uint64_t deltaTime);
   void destroyTexture(const Texture& texture);
   void destroy();
 

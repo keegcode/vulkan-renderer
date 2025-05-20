@@ -3,11 +3,10 @@
 
 layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec2 inTexCoord;
-layout(location = 2) in vec3 inPos;
-layout(location = 3) in vec4 inModelPos;
-layout(location = 4) in vec3 inNormal;
-layout(location = 5) in vec3 inViewPos;
-layout(location = 6) in mat3 inTBN;
+layout(location = 2) in vec4 inPos;
+layout(location = 3) in vec3 inNormal;
+layout(location = 4) in vec3 inViewPos;
+layout(location = 5) in mat3 inTBN;
 
 layout(location = 0) out vec4 outColor;
 
@@ -39,8 +38,8 @@ layout(scalar, set = 2, binding = 0) uniform DirectionalLight {
   vec3 ambient;
   vec3 diffuse;
   vec3 specular;
-  mat4 lightSpaceMatrix;
   uint shadowMapIdx;
+  mat4 lightSpaceMatrix;
 }
 directionalLight;
 
@@ -50,10 +49,9 @@ layout(scalar, set = 2, binding = 1) uniform PointLight {
   vec3 ambient;
   float linear;
   vec3 diffuse;
-  float quadratic;
   vec3 specular;
-  mat4 lightSpaceMatrix;
   uint shadowMapIdx;
+  mat4 lightSpaceMatrix;
 }
 pointLights[8];
 
@@ -63,17 +61,16 @@ layout(scalar, set = 2, binding = 2) uniform SpotLight {
   vec3 position;
   float linear;
   vec3 ambient;
-  float quadratic;
   vec3 diffuse;
   float cutOff;
   vec3 specular;
   float outerCutOff;
-  mat4 lightSpaceMatrix;
   uint shadowMapIdx;
+  mat4 lightSpaceMatrix;
 }
 spotLights[8];
 
-layout(set = 4, binding = 0) uniform sampler2DShadow shadowMaps[19];
+layout(set = 4, binding = 0) uniform sampler2DShadow shadowMaps[17];
 layout(set = 4, binding = 1) uniform samplerCube skybox;
 
 layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
@@ -116,7 +113,7 @@ vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 ambient =
       directionalLight.ambient * vec3(texture(diffuseMap, inTexCoord));
 
-  float shadow = calcShadow(directionalLight.lightSpaceMatrix * inModelPos, directionalLight.shadowMapIdx);
+  float shadow = calcShadow(directionalLight.lightSpaceMatrix * inPos, directionalLight.shadowMapIdx);
 
   return (ambient + ((diffuse + specular) * shadow));
 }
@@ -140,14 +137,13 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
 
   float distance = length(lightPos - fragPos);
   float attenuation =
-      1.0 / (pointLights[idx].constant + pointLights[idx].linear * distance +
-             pointLights[idx].quadratic * pow(distance, 2));
+      1.0 / (pointLights[idx].constant + pointLights[idx].linear * distance);
 
   ambient *= attenuation;
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(pointLights[idx].lightSpaceMatrix * inModelPos, pointLights[idx].shadowMapIdx);
+  float shadow = calcShadow(pointLights[idx].lightSpaceMatrix * inPos, pointLights[idx].shadowMapIdx);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -182,8 +178,7 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
 
   float distance = length(lightPos - fragPos);
   float attenuation =
-      1.0 / (spotLights[idx].constant + spotLights[idx].linear * distance +
-             spotLights[idx].quadratic * pow(distance, 2));
+      1.0 / (spotLights[idx].constant + spotLights[idx].linear * distance);
 
   diffuse *= intensity;
   specular *= intensity;
@@ -191,7 +186,7 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(spotLights[idx].lightSpaceMatrix * inModelPos, spotLights[idx].shadowMapIdx);
+  float shadow = calcShadow(spotLights[idx].lightSpaceMatrix * inPos, spotLights[idx].shadowMapIdx);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -202,22 +197,29 @@ float linearizeDepth(float depth) {
   return (2.0 * zNear) / (zFar + zNear - depth * (zFar - zNear));
 }
 
+vec3 calcSkyboxReflection(vec3 viewDir, vec3 normal, vec3 color) {
+    vec3 r = refract(-viewDir, normal, 0.66);
+    return mix(color, texture(skybox, r).rgb, (1.0 - material.roughness));
+}
+
 void main() {
   vec3 normal = texture(normalMap, inTexCoord).rgb;
+  vec3 fragPos = vec3(inPos);
+
   normal = normalize(normal * 2.0 - 1.0);
   normal = normalize(inTBN * normal);
 
-  vec3 viewDir = normalize(inViewPos - inPos);
+  vec3 viewDir = normalize(inViewPos - fragPos);
 
   vec3 shadow = vec3(0.0);
-  shadow += calcDirectionLight(normal, inPos, viewDir);
+  shadow += calcDirectionLight(normal, fragPos, viewDir);
 
   for (uint i = 0; i < frameData.pointLights; i++) {
-    shadow += calcPointLight(i, normal, inPos, viewDir);
+    shadow += calcPointLight(i, normal, fragPos, viewDir);
   }
 
   for (uint i = 0; i < frameData.spotLights; i++) {
-    shadow += calcSpotLight(i, normal, inPos, viewDir);
+    shadow += calcSpotLight(i, normal, fragPos, viewDir);
   }
 
   vec4 color = texture(diffuseMap, inTexCoord);
@@ -230,8 +232,9 @@ void main() {
 
   float c = linearizeDepth(gl_FragCoord.z);
   vec4 fog = vec4(c, c, c, 1.0);
+    
+  color.xyz = calcSkyboxReflection(viewDir, normal, color.xyz);
+  color = inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0);
 
-  outColor =
-      mix(inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0), fog,
-          c * 0.03);
+  outColor = mix(color, fog, c * 0.03);
 }

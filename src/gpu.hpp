@@ -47,24 +47,24 @@ struct Buffer {
 };
 
 struct Descriptor {
-  Buffer buffer;
   vk::DescriptorSetLayout layout;
   vk::DeviceSize size;
-  vk::DeviceOrHostAddressConstKHR address;
   vk::DescriptorType type;
+  vk::DeviceOrHostAddressConstKHR address;
+  Buffer buffer;
 };
 
 struct Image {
-  vk::Image image;
-  uint32_t mipLevels;
   vk::ImageView view;
   vk::Extent3D extent;
   VmaAllocation allocation;
+  uint32_t mipLevels;
+  vk::Image image;
 };
 
 struct Shader {
-  vk::ShaderModule module;
   vk::ShaderStageFlagBits stage;
+  vk::ShaderModule module;
 };
 
 struct Pipeline {
@@ -212,7 +212,7 @@ class GPU {
   void endSingleSubmitCommand(
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
-  Image createDepthImage(const DepthImageOptions& options);
+  Image createDepthImage(const DepthImageOptions& options) const;
   Image createTexture2D(const uint8_t* data,
                         const vk::Extent2D& extent,
                         const vk::Format format = vk::Format::eR8G8B8A8Srgb);
@@ -222,7 +222,7 @@ class GPU {
   void createMultiSampleImage();
   void generateMipmaps(const Image& image);
 
-  vk::Sampler createSampler(const vk::SamplerCreateInfo& createInfo);
+  vk::Sampler createSampler(const vk::SamplerCreateInfo& createInfo) const;
 
   void addImageMemoryBarrier(vk::CommandBuffer& cmdBuffer,
                              const ImageMemoryBarrierOptions& options);
@@ -241,10 +241,9 @@ class GPU {
   void waitForFence() const;
   int32_t acquireNextImage() const;
   void resetFence() const;
-  void beginRecordingCommands();
+  void beginRecordingCommands() const;
   void beginMainPass(const uint32_t imageIndex);
-  void beginShadowPass(const Image& shadowMapImage);
-  void endRendering() const;
+  void beginShadowPass(const Image& shadowMapImage) const;
   void submit(const uint32_t imageIndex);
 
   void destroyPipeline(const Pipeline& pipeline) const;
@@ -252,6 +251,6 @@ class GPU {
   void destroyDescriptor(const Descriptor& descriptor) const;
   void destroyBuffer(const Buffer& buffer) const;
   void destroyImage(const Image& image) const;
-  void destroySampler(const vk::Sampler& sampler);
+  void destroySampler(const vk::Sampler& sampler) const;
   void destroy() const;
 };

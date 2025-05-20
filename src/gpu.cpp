@@ -31,8 +31,8 @@ void GPU::createInstance() {
           .set_app_name("VkRenderer")
           .require_api_version(1, 3)
           .enable_extensions(display.vulkanExtensions)
-          .enable_validation_layers(true)
-          .use_default_debug_messenger()
+          //.enable_validation_layers(true)
+          //.use_default_debug_messenger()
           .build();
 
   VKB_ASSERT(instanceResult);
@@ -131,10 +131,10 @@ void GPU::pickDevice() {
 };
 
 void GPU::createSwapchain() {
-  int32_t w, h;
+  int32_t w{}, h{};
   SDL_GetWindowSize(display.window, &w, &h);
 
-  vk::Extent2D extent = vk::Extent2D{}.setWidth(w).setHeight(h);
+  vk::Extent2D extent = vk::Extent2D{}.setWidth(static_cast<uint32_t>(w)).setHeight(static_cast<uint32_t>(h));
 
   vk::SurfaceFormatKHR surfaceFormat{};
   surfaceFormat.format = vk::Format::eB8G8R8A8Srgb;
@@ -223,11 +223,11 @@ void GPU::createCommandBuffer() {
                                        &commandBuffer) == vk::Result::eSuccess);
 };
 
-vk::Sampler GPU::createSampler(const vk::SamplerCreateInfo& createInfo) {
+vk::Sampler GPU::createSampler(const vk::SamplerCreateInfo& createInfo) const {
   return device.createSampler(createInfo);
 }
 
-void GPU::destroySampler(const vk::Sampler& sampler) {
+void GPU::destroySampler(const vk::Sampler& sampler) const {
   return device.destroySampler(sampler);
 }
 
@@ -264,7 +264,7 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
           .setBindings(textureBindings)
-          .setBindingCount(textureBindings.size())
+          .setBindingCount(static_cast<uint32_t>(textureBindings.size()))
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
@@ -289,7 +289,7 @@ void GPU::createDescriptorSetLayouts() {
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
 
   std::vector<vk::DescriptorSetLayoutBinding> globalMapBindings{
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0).setDescriptorCount(19),
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0).setDescriptorCount(17),
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1)};
 
   std::vector<vk::DescriptorSetLayoutBinding> skyboxBindings{skyboxBinding};
@@ -297,7 +297,7 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
           .setBindings(lightBindings)
-          .setBindingCount(lightBindings.size())
+          .setBindingCount(static_cast<uint32_t>(lightBindings.size()))
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
@@ -318,14 +318,14 @@ void GPU::createDescriptorSetLayouts() {
   vk::DescriptorSetLayoutCreateInfo skyboxSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
           .setBindings(skyboxBindings)
-          .setBindingCount(skyboxBindings.size())
+          .setBindingCount(static_cast<uint32_t>(skyboxBindings.size()))
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
   vk::DescriptorSetLayoutCreateInfo globalMapSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
           .setBindings(globalMapBindings)
-          .setBindingCount(globalMapBindings.size())
+          .setBindingCount(static_cast<uint32_t>(globalMapBindings.size()))
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
@@ -606,7 +606,7 @@ void GPU::copyBufferToImage(const Buffer& buffer,
 
   uint32_t offset = 0;
 
-  for (size_t i = 0; i < layers; i++) {
+  for (uint32_t i = 0; i < layers; i++) {
     vk::ImageSubresourceLayers imageSubresourceLayers =
         vk::ImageSubresourceLayers{}
             .setLayerCount(1)
@@ -624,7 +624,7 @@ void GPU::copyBufferToImage(const Buffer& buffer,
             .setImageSubresource(imageSubresourceLayers);
 
     copyRegions[i] = copyRegion;
-    offset += (buffer.size / 6);
+    offset += (static_cast<uint32_t>(buffer.size) / 6);
   }
 
   vk::CopyBufferToImageInfo2 copyInfo =
@@ -632,7 +632,7 @@ void GPU::copyBufferToImage(const Buffer& buffer,
           .setSrcBuffer(buffer.buffer)
           .setDstImage(image.image)
           .setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-          .setRegionCount(copyRegions.size())
+          .setRegionCount(static_cast<uint32_t>(copyRegions.size()))
           .setRegions(copyRegions);
 
   vk::CommandBuffer copyBufferToImageCmdBuffer = beginSingleSubmitCommand();
@@ -682,7 +682,7 @@ void GPU::endSingleSubmitCommand(
   device.freeCommandBuffers(commandPool, 1, &singleSubmitBuffer);
 }
 
-Image GPU::createDepthImage(const DepthImageOptions& options) {
+Image GPU::createDepthImage(const DepthImageOptions& options) const {
   Image image{};
   image.extent = vk::Extent3D{options.extent}.setDepth(1);
 
@@ -909,7 +909,7 @@ void GPU::generateMipmaps(const Image& image) {
   addImageMemoryBarrier(cmdBuffer, options);
   endSingleSubmitCommand(cmdBuffer);
 
-  for (size_t i = 1; i < image.mipLevels; i++) {
+  for (uint32_t i = 1; i < image.mipLevels; i++) {
     cmdBuffer = beginSingleSubmitCommand();
 
     vk::ImageSubresourceLayers src =
@@ -942,7 +942,6 @@ void GPU::generateMipmaps(const Image& image) {
                                   .setSrcOffsets(srcOffsets)
                                   .setDstOffsets(dstOffsets);
 
-    ImageMemoryBarrierOptions options;
     options.image = image.image;
     options.mipLevel = i;
     options.oldLayout = vk::ImageLayout::eUndefined;
@@ -1015,8 +1014,8 @@ void GPU::createViewportAndScissors() {
   vk::Extent2D extent = vk::Extent2D{vkbSwapchain.extent};
 
   viewport = vk::Viewport{}
-                 .setWidth(extent.width)
-                 .setHeight(extent.height)
+                 .setWidth(static_cast<float>(extent.width))
+                 .setHeight(static_cast<float>(extent.height))
                  .setMaxDepth(1.0)
                  .setMinDepth(0.0)
                  .setX(0.0)
@@ -1309,7 +1308,7 @@ void GPU::resetFence() const {
   assert(device.resetFences(1, &fence) == vk::Result::eSuccess);
 }
 
-void GPU::beginShadowPass(const Image& shadowMapImage) {
+void GPU::beginShadowPass(const Image& shadowMapImage) const {
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
       vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
 
@@ -1740,7 +1739,7 @@ void GPU::createPipelines() {
   createShadowPipeline();
 };
 
-void GPU::beginRecordingCommands() {
+void GPU::beginRecordingCommands() const {
   vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo{}.setFlags(
       vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 

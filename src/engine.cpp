@@ -46,7 +46,7 @@ Engine::Engine(const Display& d, const GPU& g, const EngineConfig& config)
   prepareUniformsAndDescriptors();
 };
 
-void Engine::drawFrame(float deltaTime) {
+void Engine::drawFrame(uint64_t deltaTime) {
   gpu.waitForFence();
 
   if (shouldBeResized) {
@@ -75,7 +75,7 @@ void Engine::drawFrame(float deltaTime) {
                             transform.uniform.allocation, 0,
                             offsetof(Transform, uniform));
 
-  gpu.beginShadowPass(textures[directionalLight.shadowMapIdx].image);
+  gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx].image);
 
   ShadowPassFrameData shadowPassFrameData{};
   shadowPassFrameData.model = transform.model;
@@ -86,7 +86,7 @@ void Engine::drawFrame(float deltaTime) {
   gpu.commandBuffer.endRendering();
 
   for (const PointLight& pointLight : pointLights) {
-    gpu.beginShadowPass(textures[pointLight.shadowMapIdx].image);
+    gpu.beginShadowPass(shadowMaps[pointLight.shadowMapIdx].image);
 
     shadowPassFrameData.model = transform.model;
     shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
@@ -97,7 +97,7 @@ void Engine::drawFrame(float deltaTime) {
   }
 
   for (const SpotLight& spotLight : spotLights) {
-    gpu.beginShadowPass(textures[spotLight.shadowMapIdx].image);
+    gpu.beginShadowPass(shadowMaps[spotLight.shadowMapIdx].image);
 
     shadowPassFrameData.model = transform.model;
     shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
@@ -110,8 +110,8 @@ void Engine::drawFrame(float deltaTime) {
   gpu.beginMainPass(static_cast<uint32_t>(imageIndex));
 
   MainPassFrameData mainPassFrameData{};
-  mainPassFrameData.spotLights = spotLights.size();
-  mainPassFrameData.pointLights = pointLights.size();
+  mainPassFrameData.spotLights = static_cast<uint32_t>(spotLights.size());
+  mainPassFrameData.pointLights = static_cast<uint32_t>(pointLights.size());
   mainPassFrameData.cameraPos = camera.position;
 
   drawEntities(mainPassFrameData);
@@ -172,7 +172,7 @@ void Engine::drawSkybox(const SkyboxFrameData& frameData) {
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
 
-void Engine::processInput(float deltaTime) {
+void Engine::processInput(uint64_t deltaTime) {
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
     if (event.type == SDL_EVENT_KEY_DOWN &&
@@ -202,16 +202,16 @@ void Engine::processInput(float deltaTime) {
     if (event.type == SDL_EVENT_KEY_DOWN && camera.mode == CameraMode::Move) {
       switch (event.key.scancode) {
         case SDL_SCANCODE_W:
-          camera.position += camera.front * camera.velocity * deltaTime;
+          camera.position += camera.front * camera.velocity * (1.0f / deltaTime);
           break;
         case SDL_SCANCODE_S:
-          camera.position -= camera.front * camera.velocity * deltaTime;
+          camera.position -= camera.front * camera.velocity * (1.0f / deltaTime);
           break;
         case SDL_SCANCODE_A:
-          camera.position -= camera.right * camera.velocity * deltaTime;
+          camera.position -= camera.right * camera.velocity * (1.0f / deltaTime);
           break;
         case SDL_SCANCODE_D:
-          camera.position += camera.right * camera.velocity * deltaTime;
+          camera.position += camera.right * camera.velocity * (1.0f / deltaTime);
           break;
         default:
           break;
@@ -257,6 +257,10 @@ void Engine::destroy() {
     destroyTexture(texture);
   }
 
+  for (Texture& texture : shadowMaps) {
+    destroyTexture(texture);
+  }
+
   destroyTexture(skybox);
 
   for (Mesh& mesh : meshes) {
@@ -290,14 +294,14 @@ void Engine::destroy() {
 };
 
 Image Engine::loadImage(const std::filesystem::path& path, vk::Format format) {
-  int height, width;
+  int height{}, width{};
   uint8_t* data =
       stbi_load(path.string().c_str(), &width, &height, 0, STBI_rgb_alpha);
 
   assert(data != nullptr);
 
   Image texture = gpu.createTexture2D(
-      data, vk::Extent2D{}.setWidth(width).setHeight(height), format);
+      data, vk::Extent2D{}.setWidth(static_cast<uint32_t>(width)).setHeight(static_cast<uint32_t>(height)), format);
 
   stbi_image_free(data);
 
@@ -305,40 +309,19 @@ Image Engine::loadImage(const std::filesystem::path& path, vk::Format format) {
 }
 
 void Engine::loadConfig(const EngineConfig& config) {
-  std::vector<glm::vec3> lightPositions{};
-
   transform = config.transform;
   directionalLight = config.directionalLight;
   shadowSize = config.shadowSize;
 
-  for (size_t i = 0; i < config.pointLights.size(); i++) {
-    PointLight light = config.pointLights[i];
-    lightPositions.push_back(light.position);
-    pointLights.push_back(light);
-  }
-
-  for (size_t i = 0; i < config.spotLights.size(); i++) {
-    SpotLight light = config.spotLights[i];
-    lightPositions.push_back(light.position);
-    spotLights.push_back(light);
-  }
+  pointLights = config.pointLights;
+  spotLights = config.spotLights;
 
   for (const std::filesystem::path& path : config.assets) {
     loadAsset(path);
   }
 
-  for (size_t i = 0; i < config.entities.size(); i++) {
+  for (uint32_t i = 0; i < config.entities.size(); i++) {
     entities.push_back(config.entities[i]);
-  }
-
-  for (size_t i = 0; i < lightPositions.size(); i++) {
-    Entity entity{};
-    entity.matrix = glm::scale(
-        glm::translate(glm::mat4{1.0f},
-                       lightPositions[i] + glm::vec3{0.0f, 20.0f, 0.0f}),
-        glm::vec3{1.0});
-    entity.assetIdx = 0;
-    entities.push_back(entity);
   }
 }
 
@@ -376,14 +359,7 @@ void Engine::loadStatic() {
   defaultMaterial.shininess = 32.0;
   defaultMaterial.color = glm::vec3{0.5f};
 
-  Material lightMaterial{};
-  lightMaterial.emissive = glm::vec3{1.0f};
-  lightMaterial.color = glm::vec3{1.0f};
-  lightMaterial.specular = glm::vec3{1.0f};
-  lightMaterial.shininess = 32.0;
-
   materials.push_back(defaultMaterial);
-  materials.push_back(lightMaterial);
 
   loadAsset("./assets/Cube/glTF/Cube.gltf");
 };
@@ -411,15 +387,15 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   for (const TextureCreateInfo& createInfo : createInfos) {
     std::string p = createInfo.path.string();
     threads.push_back(std::thread([&, p]() {
-      int height, width;
+      int height{}, width{};
       uint8_t* data = stbi_load(p.c_str(), &width, &height, 0, STBI_rgb_alpha);
 
       assert(data != nullptr);
 
       ImageData image{};
       image.data = data;
-      image.height = height;
-      image.width = width;
+      image.height = static_cast<uint32_t>(height);
+      image.width = static_cast<uint32_t>(width);
 
       cache[p.c_str()] = image;
     }));
@@ -456,7 +432,7 @@ void Engine::loadMesh(Asset& asset,
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
 
-  for (size_t j = 0; j < assimpMesh->mNumVertices; j++) {
+  for (uint32_t j = 0; j < assimpMesh->mNumVertices; j++) {
     Vertex vertex{};
 
     vertex.position[0] = assimpMesh->mVertices[j].x;
@@ -496,7 +472,7 @@ void Engine::loadMesh(Asset& asset,
     vertices.push_back(vertex);
   }
 
-  for (size_t j = 0; j < assimpMesh->mNumFaces; j++) {
+  for (uint32_t j = 0; j < assimpMesh->mNumFaces; j++) {
     assert(assimpMesh->mFaces[j].mNumIndices == 3);
     indices.push_back(assimpMesh->mFaces[j].mIndices[0]);
     indices.push_back(assimpMesh->mFaces[j].mIndices[1]);
@@ -511,12 +487,12 @@ void Engine::loadMesh(Asset& asset,
       gpu.createBuffer(indices.data(), sizeof(uint32_t) * indices.size(),
                        vk::BufferUsageFlagBits::eIndexBuffer);
 
-  mesh.indicesCount = indices.size();
+  mesh.indicesCount = static_cast<uint32_t>(indices.size());
 
   loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex],
                createInfos);
 
-  asset.meshes.push_back(meshes.size());
+  asset.meshes.push_back(static_cast<uint32_t>(meshes.size()));
   meshes.push_back(mesh);
 }
 
@@ -584,10 +560,14 @@ void Engine::loadMaterial(Asset& asset,
     material.roughness = roughness;
   };
 
+  if (asset.path.filename() == "DamagedHelmet.gltf") {
+    material.roughness = 0.5f;
+  }
+
   if (assimpMaterial->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
     auto [diffuse, diffuseSampler] =
         loadTexture(assimpMaterial, aiTextureType_DIFFUSE);
-    material.diffuseTextureIdx = textures.size();
+    material.diffuseTextureIdx = static_cast<uint32_t>(textures.size());
     createInfos.push_back({asset.path.parent_path().append(diffuse.path),
                            diffuseSampler, material.diffuseTextureIdx});
     textures.push_back(diffuse);
@@ -596,7 +576,7 @@ void Engine::loadMaterial(Asset& asset,
   if (assimpMaterial->GetTextureCount(aiTextureType_SPECULAR) > 0) {
     auto [specular, specularSampler] =
         loadTexture(assimpMaterial, aiTextureType_SPECULAR);
-    material.specularTextureIdx = textures.size();
+    material.specularTextureIdx = static_cast<uint32_t>(textures.size());
     createInfos.push_back({asset.path.parent_path().append(specular.path),
                            specularSampler, material.specularTextureIdx});
     textures.push_back(specular);
@@ -605,7 +585,7 @@ void Engine::loadMaterial(Asset& asset,
   if (assimpMaterial->GetTextureCount(aiTextureType_NORMALS) > 0) {
     auto [normal, normalSampler] =
         loadTexture(assimpMaterial, aiTextureType_NORMALS);
-    material.normalTextureIdx = textures.size();
+    material.normalTextureIdx = static_cast<uint32_t>(textures.size());
     createInfos.push_back({asset.path.parent_path().append(normal.path),
                            normalSampler, material.normalTextureIdx});
     textures.push_back(normal);
@@ -614,13 +594,13 @@ void Engine::loadMaterial(Asset& asset,
   if (assimpMaterial->GetTextureCount(aiTextureType_HEIGHT) > 0) {
     auto [height, heightSampler] =
         loadTexture(assimpMaterial, aiTextureType_HEIGHT);
-    material.heightTextureIdx = textures.size();
+    material.heightTextureIdx = static_cast<uint32_t>(textures.size());
     createInfos.push_back({asset.path.parent_path().append(height.path),
                            heightSampler, material.heightTextureIdx});
     textures.push_back(height);
   }
 
-  mesh.materialIdx = materials.size();
+  mesh.materialIdx = static_cast<uint32_t>(materials.size());
   materials.push_back(material);
 }
 
@@ -628,22 +608,22 @@ void Engine::processNode(Asset& asset,
                          const aiScene* scene,
                          const aiNode* node,
                          std::vector<TextureCreateInfo>& createInfos) {
-  for (size_t i = 0; i < node->mNumMeshes; i++) {
+  for (uint32_t i = 0; i < node->mNumMeshes; i++) {
     loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]], createInfos);
   }
 
-  for (size_t i = 0; i < node->mNumChildren; i++) {
+  for (uint32_t i = 0; i < node->mNumChildren; i++) {
     processNode(asset, scene, node->mChildren[i], createInfos);
   }
 };
 
 Image Engine::loadCubemap(const std::string& type) {
-  int height, width;
+  int height{}, width{};
   std::array<uint8_t*, 6> images{};
 
   std::thread threads[6];
 
-  for (size_t i = 0; i < 6; i++) {
+  for (uint32_t i = 0; i < 6; i++) {
     threads[i] = std::thread{[&, i]() {
       std::string file = CUBEMAP_FILES[i];
       uint8_t* data = stbi_load(
@@ -654,12 +634,12 @@ Image Engine::loadCubemap(const std::string& type) {
     }};
   }
 
-  for (size_t i = 0; i < 6; i++) {
+  for (uint32_t i = 0; i < 6; i++) {
     threads[i].join();
   }
 
   Image cubemap = gpu.createCubemapTexture(
-      images, vk::Extent2D{}.setWidth(width).setHeight(height));
+      images, vk::Extent2D{}.setWidth(static_cast<uint32_t>(width)).setHeight(static_cast<uint32_t>(height)));
 
   for (const auto& data : images) {
     stbi_image_free(data);
@@ -673,13 +653,13 @@ void Engine::createDescriptors() {
   globalMapDescriptor = gpu.createTextureDescriptor(1, gpu.globalMapLayout);
   transformDescriptor = gpu.createUniformDescriptor(1, gpu.uniformLayout);
   lightsDescriptor = gpu.createUniformDescriptor(
-      spotLights.size() + pointLights.size() + 1, gpu.lightLayout);
+      static_cast<uint32_t>(spotLights.size() + pointLights.size() + 1), gpu.lightLayout);
   entitiesDescriptor =
-      gpu.createUniformDescriptor(entities.size(), gpu.uniformLayout);
+      gpu.createUniformDescriptor(static_cast<uint32_t>(entities.size()), gpu.uniformLayout);
   materialsDescriptor =
-      gpu.createUniformDescriptor(materials.size(), gpu.uniformLayout);
+      gpu.createUniformDescriptor(static_cast<uint32_t>(materials.size()), gpu.uniformLayout);
   texturesDescriptor =
-      gpu.createTextureDescriptor(materials.size(), gpu.textureLayout);
+      gpu.createTextureDescriptor(static_cast<uint32_t>(materials.size()), gpu.textureLayout);
 }
 
 void Engine::prepareUniformsAndDescriptors() {
@@ -696,74 +676,71 @@ void Engine::prepareUniformsAndDescriptors() {
 
   gpu.setDescriptorUniformBuffer(transformDescriptor, transform.uniform, 0, 0);
 
+  directionalLight.shadowMapIdx = static_cast<uint32_t>(shadowMaps.size());
+
   directionalLight.uniform =
       gpu.createBuffer(&directionalLight, offsetof(DirectionalLight, uniform),
                        vk::BufferUsageFlagBits::eUniformBuffer |
                            vk::BufferUsageFlagBits::eShaderDeviceAddress);
   
-  directionalLight.shadowMapIdx = textures.size();
-  textures.push_back(createShadowMap());
-
-  uint32_t shadowMaps = 0;
+  shadowMaps.push_back(createShadowMap());
 
   gpu.setDescriptorImage(
     globalMapDescriptor, 
-    textures[directionalLight.shadowMapIdx].image,
-    textures[directionalLight.shadowMapIdx].sampler, 
-    shadowMaps, 
+    shadowMaps[directionalLight.shadowMapIdx].image,
+    shadowMaps[directionalLight.shadowMapIdx].sampler, 
+    directionalLight.shadowMapIdx, 
     0
   );
 
   gpu.setDescriptorUniformBuffer(lightsDescriptor, directionalLight.uniform, 0,
                                  0);
 
-  for (size_t i = 0; i < pointLights.size(); i++) {
+  for (uint32_t i = 0; i < pointLights.size(); i++) {
     PointLight& light = pointLights[i];
+    light.shadowMapIdx = static_cast<uint32_t>(shadowMaps.size());
 
     light.uniform =
         gpu.createBuffer(&light, offsetof(PointLight, uniform),
                          vk::BufferUsageFlagBits::eUniformBuffer |
                              vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    light.shadowMapIdx = textures.size();
-    textures.push_back(createShadowMap());
+    shadowMaps.push_back(createShadowMap());
 
     gpu.setDescriptorImage(
       globalMapDescriptor, 
-      textures[light.shadowMapIdx].image,
-      textures[light.shadowMapIdx].sampler, 
-      shadowMaps, 
+      shadowMaps[light.shadowMapIdx].image,
+      shadowMaps[light.shadowMapIdx].sampler, 
+      light.shadowMapIdx, 
       0
     );
 
     gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 1);
-    shadowMaps += 1;
   }
 
-  for (size_t i = 0; i < spotLights.size(); i++) {
+  for (uint32_t i = 0; i < spotLights.size(); i++) {
     SpotLight& light = spotLights[i];
+    light.shadowMapIdx = static_cast<uint32_t>(shadowMaps.size());
 
     light.uniform =
         gpu.createBuffer(&light, offsetof(SpotLight, uniform),
                          vk::BufferUsageFlagBits::eUniformBuffer |
                              vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    light.shadowMapIdx = textures.size();
-    textures.push_back(createShadowMap());
+    shadowMaps.push_back(createShadowMap());
 
     gpu.setDescriptorImage(
       globalMapDescriptor, 
-      textures[light.shadowMapIdx].image,
-      textures[light.shadowMapIdx].sampler, 
-      shadowMaps, 
+      shadowMaps[light.shadowMapIdx].image,
+      shadowMaps[light.shadowMapIdx].sampler, 
+      light.shadowMapIdx, 
       0
     );
 
     gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 2);
-    shadowMaps += 1;
   }
 
-  for (size_t i = 0; i < entities.size(); i++) {
+  for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
     entity.uniform =
         gpu.createBuffer(&entity, sizeof(glm::mat4),
@@ -772,7 +749,7 @@ void Engine::prepareUniformsAndDescriptors() {
     gpu.setDescriptorUniformBuffer(entitiesDescriptor, entity.uniform, i, 0);
   }
 
-  for (size_t i = 0; i < materials.size(); i++) {
+  for (uint32_t i = 0; i < materials.size(); i++) {
     Material& material = materials[i];
 
     material.uniform =
@@ -836,8 +813,8 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
       vk::Extent2D{}.setWidth(shadowSize).setHeight(shadowSize);
 
   vk::Viewport viewport = vk::Viewport{}
-                              .setWidth(extent.width)
-                              .setHeight(extent.height)
+                              .setWidth(static_cast<float>(extent.width))
+                              .setHeight(static_cast<float>(extent.height))
                               .setMaxDepth(1.0)
                               .setMinDepth(0.0)
                               .setX(0.0)
@@ -853,7 +830,7 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                                   vk::ShaderStageFlagBits::eVertex, 0,
                                   sizeof(ShadowPassFrameData), &frameData);
 
-  for (size_t i = 0; i < entities.size(); i++) {
+  for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
     Asset& asset = assets[entity.assetIdx];
     for (const uint32_t meshIdx : asset.meshes) {
@@ -905,7 +882,7 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
   std::vector<std::array<uint32_t, 3>> transparent{};
   std::vector<std::array<uint32_t, 2>> opaque{};
 
-  for (size_t i = 0; i < entities.size(); i++) {
+  for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
     Asset& asset = assets[entity.assetIdx];
     for (const uint32_t meshIdx : asset.meshes) {
@@ -913,9 +890,9 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
       Material& material = materials[mesh.materialIdx];
 
       if (material.alphaMode != AlphaMode::Opaque) {
-        uint32_t distance =
+        float distance =
             glm::length2(camera.position - glm::vec3(entity.matrix[3]));
-        transparent.push_back({static_cast<uint32_t>(i), meshIdx, distance});
+        transparent.push_back({static_cast<uint32_t>(i), meshIdx, static_cast<uint32_t>(distance)});
       } else {
         opaque.push_back({static_cast<uint32_t>(i), meshIdx});
       }
@@ -946,7 +923,7 @@ vk::SamplerCreateInfo AssimpSampler::toVkSampler(
     float maxSamplerAnisotropy) const {
   vk::SamplerCreateInfo samplerCreateInfo =
       vk::SamplerCreateInfo{}
-          .setMaxLod(image.mipLevels)
+          .setMaxLod(static_cast<float>(image.mipLevels))
           .setMinLod(0.0f)
           .setMipLodBias(0.0f)
           .setMagFilter(vk::Filter::eLinear)
