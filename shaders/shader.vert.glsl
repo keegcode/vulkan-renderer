@@ -10,7 +10,7 @@ layout(location = 4) in vec3 inTangent;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec2 outTexCoord;
 layout(location = 2) out vec3 outPos;
-layout(location = 3) out vec4 outLightPos;
+layout(location = 3) out vec4 outModelPos;
 layout(location = 4) out vec3 outNormal;
 layout(location = 5) out vec3 outViewPos;
 layout(location = 6) out mat3 outTBN;
@@ -29,15 +29,6 @@ layout(scalar, set = 5, binding = 0) uniform Transform {
 }
 transform;
 
-layout(scalar, set = 2, binding = 0) uniform DirectionalLight {
-  vec3 direction;
-  vec3 ambient;
-  vec3 diffuse;
-  vec3 specular;
-  mat4 lightSpaceMatrix;
-}
-directionalLight;
-
 layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
   mat4 matrix;
 }
@@ -54,9 +45,9 @@ void main() {
 
   outTexCoord = inTexCoord;
   outColor = inColor;
-  outLightPos = (directionalLight.lightSpaceMatrix * pos);
   outNormal = vec3(normal);
   outPos = vec3(pos);
+  outModelPos = (transform.model * vec4(inPosition, 1.0));
   outViewPos = frameData.camera;
   outTBN = mat3(T, B, N);
 

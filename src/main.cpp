@@ -25,7 +25,7 @@ int32_t main() {
   glm::mat4 perspective{1.0f};
 
   perspective = glm::perspective(
-      glm::radians(70.0f), display.width / (float)display.height, 0.1f, 500.0f);
+      glm::radians(70.0f), display.width / (float)display.height, 1.0f, 500.0f);
 
   perspective[1][1] *= -1;
 
@@ -44,8 +44,7 @@ int32_t main() {
   config.directionalLight.specular = glm::vec3{0.4};
 
   config.directionalLight.lightSpaceMatrix =
-      glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 0.1f, 400.0f);
-
+      glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 10.0f, 400.0f);
   config.directionalLight.lightSpaceMatrix[1][1] *= -1;
   config.directionalLight.lightSpaceMatrix *= glm::lookAt(
       glm::vec3{0.1f, 350.0f, 0.1f}, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
@@ -58,7 +57,12 @@ int32_t main() {
   pointLight.constant = 1.0;
   pointLight.linear = 0.0;
   pointLight.quadratic = 0.000016;
-  // config.pointLights.push_back(pointLight);
+  pointLight.lightSpaceMatrix= glm::perspective(
+      glm::radians(90.0f), 1.0f, 1.0f, 500.0f);
+  pointLight.lightSpaceMatrix[1][1] *= -1;
+  pointLight.lightSpaceMatrix *= glm::lookAt(
+      pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0, 1.0, 0.0});
+  config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0, 100.0, 5.0f};
@@ -71,7 +75,12 @@ int32_t main() {
   spotLight.constant = 1.0;
   spotLight.linear = 0.0;
   spotLight.quadratic = 0.0016;
-  // config.spotLights.push_back(spotLight);
+  spotLight.lightSpaceMatrix= glm::perspective(
+      glm::radians(90.0f), 1.0f, 1.0f, 500.0f);
+  spotLight.lightSpaceMatrix[1][1] *= -1;
+  spotLight.lightSpaceMatrix *= glm::lookAt(
+      spotLight.position, spotLight.direction, glm::vec3{0.0, 1.0, 0.0});
+  config.spotLights.push_back(spotLight);
 
   Entity sponza{};
   sponza.matrix = glm::translate(glm::mat4{1.0}, glm::vec3{0.0, 0.0f, 0.0f}) *

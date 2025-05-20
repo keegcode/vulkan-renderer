@@ -143,7 +143,6 @@ class GPU {
   vk::DescriptorSetLayout globalMapLayout;
 
   Image depthImage;
-  Image shadowMapImage;
   Image multisampleImage;
 
   vk::Viewport viewport;
@@ -244,7 +243,7 @@ class GPU {
   void resetFence() const;
   void beginRecordingCommands();
   void beginMainPass(const uint32_t imageIndex);
-  void beginShadowPass();
+  void beginShadowPass(const Image& shadowMapImage);
   void endRendering() const;
   void submit(const uint32_t imageIndex);
 

@@ -17,44 +17,10 @@
 const std::array<std::string, 6> CUBEMAP_FILES{"right",  "left",  "top",
                                                "bottom", "front", "back"};
 
-struct SpotLight {
-  glm::vec3 direction;
-  float constant;
-  glm::vec3 position;
-  float linear;
-  glm::vec3 ambient;
-  float quadratic;
-  glm::vec3 diffuse;
-  float cutOff;
-  glm::vec3 specular;
-  float outerCutOff;
-  Buffer uniform;
-};
-
-struct PointLight {
-  glm::vec3 position;
-  float constant;
-  glm::vec3 ambient;
-  float linear;
-  glm::vec3 diffuse;
-  float quadratic;
-  glm::vec3 specular;
-  Buffer uniform;
-};
-
 struct Transform {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 projection;
-  Buffer uniform;
-};
-
-struct DirectionalLight {
-  glm::vec3 direction;
-  glm::vec3 ambient;
-  glm::vec3 diffuse;
-  glm::vec3 specular;
-  glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };
 
@@ -109,6 +75,46 @@ struct Texture {
   vk::Sampler sampler;
   std::string path;
 };
+
+struct SpotLight {
+  glm::vec3 direction;
+  float constant;
+  glm::vec3 position;
+  float linear;
+  glm::vec3 ambient;
+  float quadratic;
+  glm::vec3 diffuse;
+  float cutOff;
+  glm::vec3 specular;
+  float outerCutOff;
+  glm::mat4 lightSpaceMatrix;
+  uint32_t shadowMapIdx;
+  Buffer uniform;
+};
+
+struct PointLight {
+  glm::vec3 position;
+  float constant;
+  glm::vec3 ambient;
+  float linear;
+  glm::vec3 diffuse;
+  float quadratic;
+  glm::vec3 specular;
+  glm::mat4 lightSpaceMatrix;
+  uint32_t shadowMapIdx;
+  Buffer uniform;
+};
+
+struct DirectionalLight {
+  glm::vec3 direction;
+  glm::vec3 ambient;
+  glm::vec3 diffuse;
+  glm::vec3 specular;
+  glm::mat4 lightSpaceMatrix;
+  uint32_t shadowMapIdx;
+  Buffer uniform;
+};
+
 struct Asset {
   std::vector<uint32_t> meshes;
   std::filesystem::path path;
@@ -177,8 +183,6 @@ class Engine {
   std::vector<SpotLight> spotLights;
 
   Camera camera;
-
-  Texture shadowMap;
   Texture skybox;
 
   uint32_t shadowSize;
@@ -229,6 +233,8 @@ class Engine {
   Image loadImage(const std::filesystem::path& path,
                   vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image loadCubemap(const std::string& type);
+
+  Texture createShadowMap();
 
   void createDescriptors();
   void prepareUniformsAndDescriptors();

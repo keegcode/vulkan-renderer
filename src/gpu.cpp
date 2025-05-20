@@ -289,7 +289,7 @@ void GPU::createDescriptorSetLayouts() {
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
 
   std::vector<vk::DescriptorSetLayoutBinding> globalMapBindings{
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0),
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0).setDescriptorCount(19),
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1)};
 
   std::vector<vk::DescriptorSetLayoutBinding> skyboxBindings{skyboxBinding};
@@ -689,7 +689,7 @@ Image GPU::createDepthImage(const DepthImageOptions& options) {
   VkImageCreateInfo imageCreateInfo =
       vk::ImageCreateInfo{}
           .setImageType(vk::ImageType::e2D)
-          .setFormat(vk::Format::eD32Sfloat)
+          .setFormat(vk::Format::eD16Unorm)
           .setMipLevels(1)
           .setArrayLayers(1)
           .setSamples(options.samples)
@@ -724,7 +724,7 @@ Image GPU::createDepthImage(const DepthImageOptions& options) {
       vk::ImageViewCreateInfo{}
           .setImage(image.image)
           .setViewType(vk::ImageViewType::e2D)
-          .setFormat(vk::Format::eD32Sfloat)
+          .setFormat(vk::Format::eD16Unorm)
           .setSubresourceRange(imageSubresourceRange);
 
   image.view = device.createImageView(imageViewCreateInfo, nullptr);
@@ -1048,9 +1048,6 @@ void GPU::destroySwapchainResources() {
   device.destroyImageView(depthImage.view);
   vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
 
-  device.destroyImageView(shadowMapImage.view);
-  vmaDestroyImage(allocator, shadowMapImage.image, shadowMapImage.allocation);
-
   device.destroyImageView(multisampleImage.view);
   vmaDestroyImage(allocator, multisampleImage.image,
                   multisampleImage.allocation);
@@ -1149,7 +1146,7 @@ Pipeline GPU::createPipeline(
           .setPSpecializationInfo(nullptr);
 
   vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
-  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
+  vk::Format depthAttachmentFormat = vk::Format::eD16Unorm;
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
       vk::PipelineRenderingCreateInfo{}
@@ -1312,7 +1309,7 @@ void GPU::resetFence() const {
   assert(device.resetFences(1, &fence) == vk::Result::eSuccess);
 }
 
-void GPU::beginShadowPass() {
+void GPU::beginShadowPass(const Image& shadowMapImage) {
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
       vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
 
@@ -1532,9 +1529,6 @@ void GPU::createImages() {
       {sampleCount, vk::ImageUsageFlagBits::eDepthStencilAttachment,
        vkbSwapchain.extent});
   createMultiSampleImage();
-  shadowMapImage = createDepthImage({vk::SampleCountFlagBits::e1,
-                                     vk::ImageUsageFlagBits::eSampled,
-                                     vk::Extent2D{shadowSize, shadowSize}});
 }
 
 void GPU::submit(const uint32_t imageIndex) {
@@ -1618,7 +1612,7 @@ void GPU::createShadowPipeline() {
           .setPName("main")
           .setPSpecializationInfo(nullptr);
 
-  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
+  vk::Format depthAttachmentFormat = vk::Format::eD16Unorm;
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
       vk::PipelineRenderingCreateInfo{}
@@ -1656,8 +1650,8 @@ void GPU::createShadowPipeline() {
       vk::PipelineRasterizationStateCreateInfo{}
           .setRasterizerDiscardEnable(0)
           .setDepthBiasEnable(1)
-          .setDepthBiasConstantFactor(0.0f)
-          .setDepthBiasSlopeFactor(1.0)
+          .setDepthBiasConstantFactor(1.25f)
+          .setDepthBiasSlopeFactor(1.75)
           .setCullMode(vk::CullModeFlagBits::eNone)
           .setPolygonMode(vk::PolygonMode::eFill)
           .setFrontFace(vk::FrontFace::eCounterClockwise)
