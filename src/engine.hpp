@@ -67,7 +67,7 @@ struct Material {
   AlphaMode alphaMode = AlphaMode::Opaque;
 };
 
-enum class TextureType { BaseColor, Specular, Cube, Normal, Height };
+enum class TextureType { BaseColor, Specular, Cube, Normal, Height, Shadow };
 
 struct Texture {
   Image image;
@@ -132,7 +132,6 @@ struct EngineConfig {
   std::vector<SpotLight> spotLights;
   std::vector<Entity> entities;
   std::vector<std::filesystem::path> assets;
-  uint32_t shadowSize;
 };
 
 enum class GLTFMagFilter { Nearest = 9728, Linear = 9729 };
@@ -174,9 +173,10 @@ class Engine {
   std::vector<Entity> entities;
   std::vector<Material> materials;
   std::vector<Texture> textures;
-  std::vector<Texture> shadowMaps;
   std::vector<Asset> assets;
   std::vector<Mesh> meshes;
+
+  vk::Sampler shadowMapSampler;
 
   DirectionalLight directionalLight;
   std::vector<PointLight> pointLights;
@@ -185,14 +185,12 @@ class Engine {
   Camera camera;
   Texture skybox;
 
-  uint32_t shadowSize;
-
   Descriptor entitiesDescriptor;
   Descriptor materialsDescriptor;
   Descriptor texturesDescriptor;
   Descriptor lightsDescriptor;
   Descriptor skyboxDescriptor;
-  Descriptor globalMapDescriptor;
+  Descriptor shadowMapDescriptor;
   Descriptor transformDescriptor;
 
   bool isRunning = true;

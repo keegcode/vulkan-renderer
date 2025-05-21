@@ -23,6 +23,7 @@ GPU::GPU(const Display& d, const uint32_t s) : shadowSize{s}, display{d} {
   createImages();
   createViewportAndScissors();
   createPipelines();
+  createShadowMapAtlas();
 };
 
 void GPU::createInstance() {
@@ -47,7 +48,7 @@ void GPU::destroy() const {
   device.destroyDescriptorSetLayout(lightLayout);
   device.destroyDescriptorSetLayout(storageBufferLayout);
   device.destroyDescriptorSetLayout(skyboxLayout);
-  device.destroyDescriptorSetLayout(globalMapLayout);
+  device.destroyDescriptorSetLayout(shadowMapLayout);
 
   destroyPipeline(entitiesPipeline);
   destroyPipeline(skyboxPipeline);
@@ -287,10 +288,9 @@ void GPU::createDescriptorSetLayouts() {
 
   vk::DescriptorSetLayoutBinding skyboxBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
-
-  std::vector<vk::DescriptorSetLayoutBinding> globalMapBindings{
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0).setDescriptorCount(17),
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1)};
+    
+  vk::DescriptorSetLayoutBinding shadowMapBinding =
+      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
 
   std::vector<vk::DescriptorSetLayoutBinding> skyboxBindings{skyboxBinding};
 
@@ -322,10 +322,10 @@ void GPU::createDescriptorSetLayouts() {
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
-  vk::DescriptorSetLayoutCreateInfo globalMapSetLayoutCreateInfo =
+  vk::DescriptorSetLayoutCreateInfo shadowMapSetLayoutCreateInfo =
       vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(globalMapBindings)
-          .setBindingCount(static_cast<uint32_t>(globalMapBindings.size()))
+          .setBindings(shadowMapBinding)
+          .setBindingCount(1)
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
@@ -344,8 +344,8 @@ void GPU::createDescriptorSetLayouts() {
   skyboxLayout =
       device.createDescriptorSetLayout(skyboxSetLayoutCreateInfo, nullptr);
 
-  globalMapLayout =
-      device.createDescriptorSetLayout(globalMapSetLayoutCreateInfo, nullptr);
+  shadowMapLayout =
+      device.createDescriptorSetLayout(shadowMapSetLayoutCreateInfo, nullptr);
 }
 
 Descriptor GPU::createStorageBufferDescriptor(
@@ -689,7 +689,7 @@ Image GPU::createDepthImage(const DepthImageOptions& options) const {
   VkImageCreateInfo imageCreateInfo =
       vk::ImageCreateInfo{}
           .setImageType(vk::ImageType::e2D)
-          .setFormat(vk::Format::eD16Unorm)
+          .setFormat(vk::Format::eD32Sfloat)
           .setMipLevels(1)
           .setArrayLayers(1)
           .setSamples(options.samples)
@@ -724,7 +724,7 @@ Image GPU::createDepthImage(const DepthImageOptions& options) const {
       vk::ImageViewCreateInfo{}
           .setImage(image.image)
           .setViewType(vk::ImageViewType::e2D)
-          .setFormat(vk::Format::eD16Unorm)
+          .setFormat(vk::Format::eD32Sfloat)
           .setSubresourceRange(imageSubresourceRange);
 
   image.view = device.createImageView(imageViewCreateInfo, nullptr);
@@ -1145,7 +1145,7 @@ Pipeline GPU::createPipeline(
           .setPSpecializationInfo(nullptr);
 
   vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
-  vk::Format depthAttachmentFormat = vk::Format::eD16Unorm;
+  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
       vk::PipelineRenderingCreateInfo{}
@@ -1308,13 +1308,13 @@ void GPU::resetFence() const {
   assert(device.resetFences(1, &fence) == vk::Result::eSuccess);
 }
 
-void GPU::beginShadowPass(const Image& shadowMapImage) const {
+void GPU::beginShadowPass() const {
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
       vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
 
   vk::RenderingAttachmentInfo depthAttachment =
       vk::RenderingAttachmentInfo{}
-          .setImageView(shadowMapImage.view)
+          .setImageView(shadowMapAtlas.view)
           .setResolveMode(vk::ResolveModeFlagBits::eNone)
           .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
           .setLoadOp(vk::AttachmentLoadOp::eClear)
@@ -1331,7 +1331,7 @@ void GPU::beginShadowPass(const Image& shadowMapImage) const {
 
   vk::ImageMemoryBarrier2 depthMemoryBarrier =
       vk::ImageMemoryBarrier2{}
-          .setImage(shadowMapImage.image)
+          .setImage(shadowMapAtlas.image)
           .setOldLayout(vk::ImageLayout::eUndefined)
           .setNewLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
           .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -1353,7 +1353,7 @@ void GPU::beginShadowPass(const Image& shadowMapImage) const {
   vk::RenderingInfo renderingInfo =
       vk::RenderingInfo{}
           .setRenderArea(
-              vk::Rect2D{}.setExtent(vk::Extent2D{shadowSize, shadowSize}))
+              vk::Rect2D{}.setExtent(vk::Extent2D{8192, 8192}))
           .setLayerCount(1)
           .setViewMask(0)
           .setPDepthAttachment(&depthAttachment);
@@ -1611,7 +1611,7 @@ void GPU::createShadowPipeline() {
           .setPName("main")
           .setPSpecializationInfo(nullptr);
 
-  vk::Format depthAttachmentFormat = vk::Format::eD16Unorm;
+  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
       vk::PipelineRenderingCreateInfo{}
@@ -1718,7 +1718,7 @@ void GPU::createShadowPipeline() {
 void GPU::createPipelines() {
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
       textureLayout, uniformLayout,   lightLayout,
-      uniformLayout, globalMapLayout, uniformLayout};
+      uniformLayout, shadowMapLayout, uniformLayout, skyboxLayout};
 
   entitiesPipeline =
       createPipeline(loadShader("./shaders/shader.vert.glsl.spv",
@@ -1744,4 +1744,10 @@ void GPU::beginRecordingCommands() const {
       vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
   commandBuffer.begin(beginInfo);
+}
+
+void GPU::createShadowMapAtlas() {
+  shadowMapAtlas = createDepthImage(
+      {vk::SampleCountFlagBits::e1, vk::ImageUsageFlagBits::eSampled,
+      vk::Extent2D{shadowAtlasSize, shadowAtlasSize}});
 }

@@ -19,6 +19,7 @@ void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
 struct ShadowPassFrameData {
   glm::mat4 lightSpaceMatrix;
   glm::mat4 model;
+  uint32_t shadowMapIdx;
 };
 
 struct MainPassFrameData {
@@ -96,7 +97,8 @@ struct DepthImageOptions {
 
 class GPU {
  public:
-  uint32_t shadowSize;
+  uint32_t shadowSize = 512;
+  uint32_t shadowAtlasSize = 8192;
 
   Display display;
 
@@ -140,10 +142,11 @@ class GPU {
   vk::DescriptorSetLayout lightLayout;
   vk::DescriptorSetLayout storageBufferLayout;
   vk::DescriptorSetLayout skyboxLayout;
-  vk::DescriptorSetLayout globalMapLayout;
+  vk::DescriptorSetLayout shadowMapLayout;
 
   Image depthImage;
   Image multisampleImage;
+  Image shadowMapAtlas;
 
   vk::Viewport viewport;
   vk::Rect2D scissors;
@@ -213,6 +216,8 @@ class GPU {
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
   Image createDepthImage(const DepthImageOptions& options) const;
+
+  void createShadowMapAtlas();
   Image createTexture2D(const uint8_t* data,
                         const vk::Extent2D& extent,
                         const vk::Format format = vk::Format::eR8G8B8A8Srgb);
@@ -243,7 +248,7 @@ class GPU {
   void resetFence() const;
   void beginRecordingCommands() const;
   void beginMainPass(const uint32_t imageIndex);
-  void beginShadowPass(const Image& shadowMapImage) const;
+  void beginShadowPass() const;
   void submit(const uint32_t imageIndex);
 
   void destroyPipeline(const Pipeline& pipeline) const;

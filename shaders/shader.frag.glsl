@@ -70,13 +70,9 @@ layout(scalar, set = 2, binding = 2) uniform SpotLight {
 }
 spotLights[8];
 
-layout(set = 4, binding = 0) uniform sampler2DShadow shadowMaps[17];
-layout(set = 4, binding = 1) uniform samplerCube skybox;
+layout(set = 4, binding = 0) uniform sampler2DShadow shadowMapAtlas;
 
-layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
-  mat4 matrix;
-}
-entity;
+layout(set = 6, binding = 0) uniform samplerCube skybox;
 
 layout(scalar, set = 5, binding = 0) uniform Transform {
   mat4 model;
@@ -88,6 +84,9 @@ transform;
 float calcShadow(vec4 inLightPos, uint shadowMapIdx) {
   vec4 sampleLightPos = inLightPos / inLightPos.w;
   sampleLightPos.xy = sampleLightPos.xy * 0.5 + 0.5;
+  
+  sampleLightPos.x = (sampleLightPos.x / 4.0) + (shadowMapIdx * (1.0 / 4.0));
+  sampleLightPos.y = (sampleLightPos.y / 4.0) + (0.0 * (1.0 / 4.0));
 
   float currentDepth = sampleLightPos.z;
 
@@ -95,7 +94,7 @@ float calcShadow(vec4 inLightPos, uint shadowMapIdx) {
     return 0.0;
   }
 
-  return texture(shadowMaps[shadowMapIdx], sampleLightPos.xyz).r;
+  return texture(shadowMapAtlas, sampleLightPos.xyz).r;
 }
 
 vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
@@ -235,6 +234,6 @@ void main() {
     
   color.xyz = calcSkyboxReflection(viewDir, normal, color.xyz);
   color = inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0);
-
+    
   outColor = mix(color, fog, c * 0.03);
 }
