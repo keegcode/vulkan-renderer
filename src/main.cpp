@@ -12,10 +12,8 @@
 #include <glm/ext/matrix_transform.hpp>
 
 int32_t main() {
-  uint32_t shadowSize = 2048;
-
   Display display{};
-  GPU gpu{display, shadowSize};
+  GPU gpu{display};
 
   EngineConfig config{};
 
@@ -60,7 +58,7 @@ int32_t main() {
   pointLight.lightSpaceMatrix[1][1] *= -1;
   pointLight.lightSpaceMatrix *= glm::lookAt(
       pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  config.pointLights.push_back(pointLight);
+  //config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0f, 100.0f, 5.0f};
@@ -76,6 +74,12 @@ int32_t main() {
       glm::radians(80.0f), 1.0f, 1.0f, 200.0f);
   spotLight.lightSpaceMatrix[1][1] *= -1;
   spotLight.lightSpaceMatrix *= glm::lookAt(spotLight.position, spotLight.direction, glm::vec3{0.0f, 1.0f, 0.0f});
+  config.spotLights.push_back(spotLight);
+
+  spotLight.position = glm::vec3{0.0, 100.0f, 100.0f};
+  config.spotLights.push_back(spotLight);
+
+  spotLight.position = glm::vec3{0.0, 100.0f, -100.0f};
   config.spotLights.push_back(spotLight);
 
   Entity sponza{};

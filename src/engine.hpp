@@ -86,7 +86,8 @@ struct SpotLight {
   float cutOff;
   glm::vec3 specular;
   float outerCutOff;
-  uint32_t shadowMapIdx;
+  uint32_t shadowMapX;
+  uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };
@@ -99,7 +100,8 @@ struct PointLight {
   glm::vec3 diffuse;
   float quadratic;
   glm::vec3 specular;
-  uint32_t shadowMapIdx;
+  uint32_t shadowMapX;
+  uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };
@@ -109,7 +111,8 @@ struct DirectionalLight {
   glm::vec3 ambient;
   glm::vec3 diffuse;
   glm::vec3 specular;
-  uint32_t shadowMapIdx;
+  uint32_t shadowMapX;
+  uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
   Buffer uniform;
 };

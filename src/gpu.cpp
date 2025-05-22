@@ -9,7 +9,7 @@
 #include "stb_image.h"
 #include "utils.hpp"
 
-GPU::GPU(const Display& d, const uint32_t s) : shadowSize{s}, display{d} {
+GPU::GPU(const Display& d) : display{d} {
   createInstance();
   pickPhysicalDevice();
   pickDevice();

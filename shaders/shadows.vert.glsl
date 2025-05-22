@@ -6,7 +6,8 @@ layout(location = 0) in vec3 inPosition;
 layout(scalar, push_constant) uniform FrameData {
   mat4 lightSpaceMatrix;
   mat4 model;
-  uint shadowMapIdx;
+  uint shadowMapX;
+  uint shadowMapY;
 }
 frameData;
 

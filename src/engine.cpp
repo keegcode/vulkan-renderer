@@ -80,14 +80,16 @@ void Engine::drawFrame(uint64_t deltaTime) {
   ShadowPassFrameData shadowPassFrameData{};
   shadowPassFrameData.model = transform.model;
   shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
-  shadowPassFrameData.shadowMapIdx = directionalLight.shadowMapIdx;
+  shadowPassFrameData.shadowMapX = directionalLight.shadowMapX;
+  shadowPassFrameData.shadowMapY = directionalLight.shadowMapY;
 
   drawShadows(shadowPassFrameData);
 
   for (const PointLight& pointLight : pointLights) {
     shadowPassFrameData.model = transform.model;
     shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
-	shadowPassFrameData.shadowMapIdx = pointLight.shadowMapIdx;
+	  shadowPassFrameData.shadowMapX = pointLight.shadowMapX;
+	  shadowPassFrameData.shadowMapY = pointLight.shadowMapY;
 
     drawShadows(shadowPassFrameData);
   }
@@ -95,7 +97,8 @@ void Engine::drawFrame(uint64_t deltaTime) {
   for (const SpotLight& spotLight : spotLights) {
     shadowPassFrameData.model = transform.model;
     shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
-	shadowPassFrameData.shadowMapIdx = spotLight.shadowMapIdx;
+	  shadowPassFrameData.shadowMapX = spotLight.shadowMapX;
+	  shadowPassFrameData.shadowMapY = spotLight.shadowMapY;
 
     drawShadows(shadowPassFrameData);
   }
@@ -677,11 +680,13 @@ void Engine::prepareUniformsAndDescriptors() {
 
   gpu.setDescriptorUniformBuffer(transformDescriptor, transform.uniform, 0, 0);
 
-  uint32_t shadowMapIdx = 0;
+  uint32_t shadowMapX = 0;
+  uint32_t shadowMapY = 0;
 
-  directionalLight.shadowMapIdx = shadowMapIdx;
+  directionalLight.shadowMapX = 0;
+  directionalLight.shadowMapY = 0;
 
-  shadowMapIdx += 1;
+  shadowMapX += 1;
 
   directionalLight.uniform =
       gpu.createBuffer(&directionalLight, offsetof(DirectionalLight, uniform),
@@ -693,7 +698,8 @@ void Engine::prepareUniformsAndDescriptors() {
 
   for (uint32_t i = 0; i < pointLights.size(); i++) {
     PointLight& light = pointLights[i];
-    light.shadowMapIdx = shadowMapIdx;
+    light.shadowMapX = shadowMapX;
+    light.shadowMapY = shadowMapY;
 
     light.uniform =
         gpu.createBuffer(&light, offsetof(PointLight, uniform),
@@ -702,12 +708,20 @@ void Engine::prepareUniformsAndDescriptors() {
 
     gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 1);
     
-    shadowMapIdx += 1;
+    if (shadowMapX == (gpu.shadowSize - shadowMapX)) {
+      shadowMapX = 0;
+      shadowMapY += 1;
+    } else {
+      shadowMapX += 1;
+    }
+
+    assert(shadowMapY < gpu.shadowSize - shadowMapY);
   }
 
   for (uint32_t i = 0; i < spotLights.size(); i++) {
     SpotLight& light = spotLights[i];
-    light.shadowMapIdx = shadowMapIdx;
+    light.shadowMapX = shadowMapX;
+    light.shadowMapY = shadowMapY;
 
     light.uniform =
         gpu.createBuffer(&light, offsetof(SpotLight, uniform),
@@ -716,7 +730,14 @@ void Engine::prepareUniformsAndDescriptors() {
 
     gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 2);
 
-    shadowMapIdx += 1;
+    if (shadowMapX == (gpu.shadowSize - shadowMapX)) {
+      shadowMapX = 0;
+      shadowMapY += 1;
+    } else {
+      shadowMapX += 1;
+    }
+
+    assert(shadowMapY < gpu.shadowSize - shadowMapY);
   }
 
   for (uint32_t i = 0; i < entities.size(); i++) {
@@ -796,12 +817,14 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                               .setHeight(static_cast<float>(extent.height))
                               .setMaxDepth(1.0)
                               .setMinDepth(0.0)
-                              .setX(frameData.shadowMapIdx * gpu.shadowSize)
+                              .setX(frameData.shadowMapX * gpu.shadowSize)
+                              .setY(frameData.shadowMapY * gpu.shadowSize)
                               .setY(0.0);
 
   vk::Rect2D scissors =
       vk::Rect2D{}
-          .setOffset(vk::Offset2D{}.setX(frameData.shadowMapIdx * gpu.shadowSize))
+          .setOffset(vk::Offset2D{}.setX(frameData.shadowMapX * gpu.shadowSize))
+          .setOffset(vk::Offset2D{}.setY(frameData.shadowMapY * gpu.shadowSize))
           .setExtent(vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
 
   gpu.commandBuffer.setViewport(0, 1, &viewport);

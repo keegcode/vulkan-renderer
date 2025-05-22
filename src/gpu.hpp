@@ -19,13 +19,15 @@ void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
 struct ShadowPassFrameData {
   glm::mat4 lightSpaceMatrix;
   glm::mat4 model;
-  uint32_t shadowMapIdx;
+  uint32_t shadowMapX;
+  uint32_t shadowMapY;
 };
 
 struct MainPassFrameData {
   glm::vec3 cameraPos;
   uint32_t pointLights;
   uint32_t spotLights;
+  uint32_t maxShadowMaps;
 };
 
 struct SkyboxFrameData {
@@ -97,8 +99,11 @@ struct DepthImageOptions {
 
 class GPU {
  public:
-  uint32_t shadowSize = 512;
-  uint32_t shadowAtlasSize = 8192;
+  static const uint32_t shadowSize = 512;
+  static_assert((shadowSize & (shadowSize - 1)) == 0, "Shadow size should be 2^n");
+
+  static const uint32_t shadowAtlasSize = 8192;
+  static_assert((shadowAtlasSize & (shadowAtlasSize - 1)) == 0, "Atlas size should be 2^n");
 
   Display display;
 
@@ -151,7 +156,7 @@ class GPU {
   vk::Viewport viewport;
   vk::Rect2D scissors;
 
-  GPU(const Display& d, const uint32_t s);
+  GPU(const Display& d);
 
   void createInstance();
   void pickPhysicalDevice();

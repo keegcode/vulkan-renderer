@@ -14,6 +14,7 @@ layout(push_constant, std140) uniform FrameData {
   vec3 camera;
   uint pointLights;
   uint spotLights;
+  uint maxShadowMaps;
 }
 frameData;
 
@@ -38,7 +39,8 @@ layout(scalar, set = 2, binding = 0) uniform DirectionalLight {
   vec3 ambient;
   vec3 diffuse;
   vec3 specular;
-  uint shadowMapIdx;
+  uint shadowMapX;
+  uint shadowMapY;
   mat4 lightSpaceMatrix;
 }
 directionalLight;
@@ -50,7 +52,8 @@ layout(scalar, set = 2, binding = 1) uniform PointLight {
   float linear;
   vec3 diffuse;
   vec3 specular;
-  uint shadowMapIdx;
+  uint shadowMapX;
+  uint shadowMapY;
   mat4 lightSpaceMatrix;
 }
 pointLights[8];
@@ -65,7 +68,8 @@ layout(scalar, set = 2, binding = 2) uniform SpotLight {
   float cutOff;
   vec3 specular;
   float outerCutOff;
-  uint shadowMapIdx;
+  uint shadowMapX;
+  uint shadowMapY;
   mat4 lightSpaceMatrix;
 }
 spotLights[8];
@@ -81,12 +85,12 @@ layout(scalar, set = 5, binding = 0) uniform Transform {
 }
 transform;
 
-float calcShadow(vec4 inLightPos, uint shadowMapIdx) {
+float calcShadow(vec4 inLightPos, uint shadowMapX, uint shadowMapY) {
   vec4 sampleLightPos = inLightPos / inLightPos.w;
   sampleLightPos.xy = sampleLightPos.xy * 0.5 + 0.5;
   
-  sampleLightPos.x = (sampleLightPos.x / 4.0) + (shadowMapIdx * (1.0 / 4.0));
-  sampleLightPos.y = (sampleLightPos.y / 4.0) + (0.0 * (1.0 / 4.0));
+  sampleLightPos.x = (sampleLightPos.x / frameData.maxShadowMaps) + (shadowMapX * (1.0 / frameData.maxShadowMaps));
+  sampleLightPos.y = (sampleLightPos.y / frameData.maxShadowMaps) + (shadowMapY * (1.0 / frameData.maxShadowMaps));
 
   float currentDepth = sampleLightPos.z;
 
@@ -112,7 +116,7 @@ vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 ambient =
       directionalLight.ambient * vec3(texture(diffuseMap, inTexCoord));
 
-  float shadow = calcShadow(directionalLight.lightSpaceMatrix * inPos, directionalLight.shadowMapIdx);
+  float shadow = calcShadow(directionalLight.lightSpaceMatrix * inPos, directionalLight.shadowMapX, directionalLight.shadowMapY);
 
   return (ambient + ((diffuse + specular) * shadow));
 }
@@ -142,7 +146,7 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(pointLights[idx].lightSpaceMatrix * inPos, pointLights[idx].shadowMapIdx);
+  float shadow = calcShadow(pointLights[idx].lightSpaceMatrix * inPos, pointLights[idx].shadowMapX, pointLights[idx].shadowMapY);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -185,7 +189,7 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(spotLights[idx].lightSpaceMatrix * inPos, spotLights[idx].shadowMapIdx);
+  float shadow = calcShadow(spotLights[idx].lightSpaceMatrix * inPos, spotLights[idx].shadowMapX, spotLights[idx].shadowMapY);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
