@@ -1,6 +1,8 @@
 # Vulkan Renderer
 
-A 3D rendering engine built with Vulkan.
+A modern 3D rendering engine built with Vulkan.
+
+![Vulkan Renderer Screenshot](screenshot.png)
 
 ## Features
 
