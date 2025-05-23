@@ -1353,7 +1353,7 @@ void GPU::beginShadowPass() const {
   vk::RenderingInfo renderingInfo =
       vk::RenderingInfo{}
           .setRenderArea(
-              vk::Rect2D{}.setExtent(vk::Extent2D{8192, 8192}))
+              vk::Rect2D{}.setExtent(vk::Extent2D{shadowAtlasSize, shadowAtlasSize}))
           .setLayerCount(1)
           .setViewMask(0)
           .setPDepthAttachment(&depthAttachment);

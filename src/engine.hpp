@@ -173,6 +173,8 @@ class Engine {
  public:
   Transform transform;
 
+  bool shadowsGenerated = false;
+
   std::vector<Entity> entities;
   std::vector<Material> materials;
   std::vector<Texture> textures;

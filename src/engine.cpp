@@ -74,36 +74,39 @@ void Engine::drawFrame(uint64_t deltaTime) {
   vmaCopyMemoryToAllocation(gpu.allocator, &transform,
                             transform.uniform.allocation, 0,
                             offsetof(Transform, uniform));
+  if (!shadowsGenerated) {
+	  gpu.beginShadowPass();
 
-  gpu.beginShadowPass();
+	  ShadowPassFrameData shadowPassFrameData{};
+	  shadowPassFrameData.model = transform.model;
+	  shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
+	  shadowPassFrameData.shadowMapX = directionalLight.shadowMapX;
+	  shadowPassFrameData.shadowMapY = directionalLight.shadowMapY;
 
-  ShadowPassFrameData shadowPassFrameData{};
-  shadowPassFrameData.model = transform.model;
-  shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
-  shadowPassFrameData.shadowMapX = directionalLight.shadowMapX;
-  shadowPassFrameData.shadowMapY = directionalLight.shadowMapY;
+	  drawShadows(shadowPassFrameData);
 
-  drawShadows(shadowPassFrameData);
+	  for (const PointLight& pointLight : pointLights) {
+		shadowPassFrameData.model = transform.model;
+		shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
+		shadowPassFrameData.shadowMapX = pointLight.shadowMapX;
+		shadowPassFrameData.shadowMapY = pointLight.shadowMapY;
 
-  for (const PointLight& pointLight : pointLights) {
-    shadowPassFrameData.model = transform.model;
-    shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
-	  shadowPassFrameData.shadowMapX = pointLight.shadowMapX;
-	  shadowPassFrameData.shadowMapY = pointLight.shadowMapY;
+		drawShadows(shadowPassFrameData);
+	  }
 
-    drawShadows(shadowPassFrameData);
+	  for (const SpotLight& spotLight : spotLights) {
+		shadowPassFrameData.model = transform.model;
+		shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
+		shadowPassFrameData.shadowMapX = spotLight.shadowMapX;
+		shadowPassFrameData.shadowMapY = spotLight.shadowMapY;
+
+		drawShadows(shadowPassFrameData);
+	  }
+
+	  gpu.commandBuffer.endRendering();
+
+      shadowsGenerated = true;
   }
-
-  for (const SpotLight& spotLight : spotLights) {
-    shadowPassFrameData.model = transform.model;
-    shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
-	  shadowPassFrameData.shadowMapX = spotLight.shadowMapX;
-	  shadowPassFrameData.shadowMapY = spotLight.shadowMapY;
-
-    drawShadows(shadowPassFrameData);
-  }
-
-  gpu.commandBuffer.endRendering();
 
   gpu.beginMainPass(static_cast<uint32_t>(imageIndex));
 
@@ -111,6 +114,7 @@ void Engine::drawFrame(uint64_t deltaTime) {
   mainPassFrameData.spotLights = static_cast<uint32_t>(spotLights.size());
   mainPassFrameData.pointLights = static_cast<uint32_t>(pointLights.size());
   mainPassFrameData.cameraPos = camera.position;
+  mainPassFrameData.maxShadowMaps = gpu.shadowAtlasSize / gpu.shadowSize;
 
   drawEntities(mainPassFrameData);
 
@@ -682,11 +686,10 @@ void Engine::prepareUniformsAndDescriptors() {
 
   uint32_t shadowMapX = 0;
   uint32_t shadowMapY = 0;
+  uint32_t maxShadowMaps = ((gpu.shadowAtlasSize / gpu.shadowSize) - 1);
 
   directionalLight.shadowMapX = 0;
   directionalLight.shadowMapY = 0;
-
-  shadowMapX += 1;
 
   directionalLight.uniform =
       gpu.createBuffer(&directionalLight, offsetof(DirectionalLight, uniform),
@@ -697,6 +700,15 @@ void Engine::prepareUniformsAndDescriptors() {
                                  0);
 
   for (uint32_t i = 0; i < pointLights.size(); i++) {
+    if (shadowMapX == maxShadowMaps) {
+      shadowMapX = 0;
+      shadowMapY += 1;
+    } else {
+      shadowMapX += 1;
+    }
+
+    assert(shadowMapY <= maxShadowMaps);
+
     PointLight& light = pointLights[i];
     light.shadowMapX = shadowMapX;
     light.shadowMapY = shadowMapY;
@@ -707,18 +719,18 @@ void Engine::prepareUniformsAndDescriptors() {
                              vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
     gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 1);
-    
-    if (shadowMapX == (gpu.shadowSize - shadowMapX)) {
+  }
+
+  for (uint32_t i = 0; i < spotLights.size(); i++) {
+    if (shadowMapX == maxShadowMaps) {
       shadowMapX = 0;
       shadowMapY += 1;
     } else {
       shadowMapX += 1;
     }
 
-    assert(shadowMapY < gpu.shadowSize - shadowMapY);
-  }
+    assert(shadowMapY <= maxShadowMaps);
 
-  for (uint32_t i = 0; i < spotLights.size(); i++) {
     SpotLight& light = spotLights[i];
     light.shadowMapX = shadowMapX;
     light.shadowMapY = shadowMapY;
@@ -729,15 +741,6 @@ void Engine::prepareUniformsAndDescriptors() {
                              vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
     gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 2);
-
-    if (shadowMapX == (gpu.shadowSize - shadowMapX)) {
-      shadowMapX = 0;
-      shadowMapY += 1;
-    } else {
-      shadowMapX += 1;
-    }
-
-    assert(shadowMapY < gpu.shadowSize - shadowMapY);
   }
 
   for (uint32_t i = 0; i < entities.size(); i++) {
@@ -818,13 +821,11 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                               .setMaxDepth(1.0)
                               .setMinDepth(0.0)
                               .setX(frameData.shadowMapX * gpu.shadowSize)
-                              .setY(frameData.shadowMapY * gpu.shadowSize)
-                              .setY(0.0);
+                              .setY(frameData.shadowMapY * gpu.shadowSize);
 
   vk::Rect2D scissors =
       vk::Rect2D{}
-          .setOffset(vk::Offset2D{}.setX(frameData.shadowMapX * gpu.shadowSize))
-          .setOffset(vk::Offset2D{}.setY(frameData.shadowMapY * gpu.shadowSize))
+          .setOffset(vk::Offset2D{}.setX(frameData.shadowMapX * gpu.shadowSize).setY(frameData.shadowMapY * gpu.shadowSize))
           .setExtent(vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
 
   gpu.commandBuffer.setViewport(0, 1, &viewport);

@@ -185,9 +185,10 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
 
   diffuse *= intensity;
   specular *= intensity;
-  ambient *= attenuation;
-  diffuse *= attenuation;
-  specular *= attenuation;
+
+  //ambient *= attenuation;
+  //diffuse *= attenuation;
+  //specular *= attenuation;
 
   float shadow = calcShadow(spotLights[idx].lightSpaceMatrix * inPos, spotLights[idx].shadowMapX, spotLights[idx].shadowMapY);
 
