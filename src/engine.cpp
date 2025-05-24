@@ -75,37 +75,37 @@ void Engine::drawFrame(uint64_t deltaTime) {
                             transform.uniform.allocation, 0,
                             offsetof(Transform, uniform));
   if (!shadowsGenerated) {
-	  gpu.beginShadowPass();
+    gpu.beginShadowPass();
 
-	  ShadowPassFrameData shadowPassFrameData{};
-	  shadowPassFrameData.model = transform.model;
-	  shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
-	  shadowPassFrameData.shadowMapX = directionalLight.shadowMapX;
-	  shadowPassFrameData.shadowMapY = directionalLight.shadowMapY;
+    ShadowPassFrameData shadowPassFrameData{};
+    shadowPassFrameData.model = transform.model;
+    shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
+    shadowPassFrameData.shadowMapX = directionalLight.shadowMapX;
+    shadowPassFrameData.shadowMapY = directionalLight.shadowMapY;
 
-	  drawShadows(shadowPassFrameData);
+    drawShadows(shadowPassFrameData);
 
-	  for (const PointLight& pointLight : pointLights) {
-		shadowPassFrameData.model = transform.model;
-		shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
-		shadowPassFrameData.shadowMapX = pointLight.shadowMapX;
-		shadowPassFrameData.shadowMapY = pointLight.shadowMapY;
+    for (const PointLight& pointLight : pointLights) {
+      shadowPassFrameData.model = transform.model;
+      shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
+      shadowPassFrameData.shadowMapX = pointLight.shadowMapX;
+      shadowPassFrameData.shadowMapY = pointLight.shadowMapY;
 
-		drawShadows(shadowPassFrameData);
-	  }
+      drawShadows(shadowPassFrameData);
+    }
 
-	  for (const SpotLight& spotLight : spotLights) {
-		shadowPassFrameData.model = transform.model;
-		shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
-		shadowPassFrameData.shadowMapX = spotLight.shadowMapX;
-		shadowPassFrameData.shadowMapY = spotLight.shadowMapY;
+    for (const SpotLight& spotLight : spotLights) {
+      shadowPassFrameData.model = transform.model;
+      shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
+      shadowPassFrameData.shadowMapX = spotLight.shadowMapX;
+      shadowPassFrameData.shadowMapY = spotLight.shadowMapY;
 
-		drawShadows(shadowPassFrameData);
-	  }
+      drawShadows(shadowPassFrameData);
+    }
 
-	  gpu.commandBuffer.endRendering();
+    gpu.commandBuffer.endRendering();
 
-      shadowsGenerated = true;
+    shadowsGenerated = true;
   }
 
   gpu.beginMainPass(static_cast<uint32_t>(imageIndex));
@@ -204,16 +204,20 @@ void Engine::processInput(uint64_t deltaTime) {
     if (event.type == SDL_EVENT_KEY_DOWN && camera.mode == CameraMode::Move) {
       switch (event.key.scancode) {
         case SDL_SCANCODE_W:
-          camera.position += camera.front * camera.velocity * (1.0f / deltaTime);
+          camera.position +=
+              camera.front * camera.velocity * (1.0f / deltaTime);
           break;
         case SDL_SCANCODE_S:
-          camera.position -= camera.front * camera.velocity * (1.0f / deltaTime);
+          camera.position -=
+              camera.front * camera.velocity * (1.0f / deltaTime);
           break;
         case SDL_SCANCODE_A:
-          camera.position -= camera.right * camera.velocity * (1.0f / deltaTime);
+          camera.position -=
+              camera.right * camera.velocity * (1.0f / deltaTime);
           break;
         case SDL_SCANCODE_D:
-          camera.position += camera.right * camera.velocity * (1.0f / deltaTime);
+          camera.position +=
+              camera.right * camera.velocity * (1.0f / deltaTime);
           break;
         default:
           break;
@@ -266,14 +270,6 @@ void Engine::destroy() {
     gpu.destroyBuffer(mesh.indexBuffer);
   }
 
-  for (PointLight& l : pointLights) {
-    gpu.destroyBuffer(l.uniform);
-  }
-
-  for (SpotLight& l : spotLights) {
-    gpu.destroyBuffer(l.uniform);
-  }
-
   for (Material& m : materials) {
     gpu.destroyBuffer(m.uniform);
   }
@@ -283,7 +279,9 @@ void Engine::destroy() {
   }
 
   gpu.destroyBuffer(transform.uniform);
-  gpu.destroyBuffer(directionalLight.uniform);
+  gpu.destroyBuffer(directionalLightUniform);
+  gpu.destroyBuffer(spotLightsUniform);
+  gpu.destroyBuffer(pointLightsUniform);
 
   gpu.destroySwapchainResources();
 
@@ -298,8 +296,12 @@ Image Engine::loadImage(const std::filesystem::path& path, vk::Format format) {
 
   assert(data != nullptr);
 
-  Image texture = gpu.createTexture2D(
-      data, vk::Extent2D{}.setWidth(static_cast<uint32_t>(width)).setHeight(static_cast<uint32_t>(height)), format);
+  Image texture =
+      gpu.createTexture2D(data,
+                          vk::Extent2D{}
+                              .setWidth(static_cast<uint32_t>(width))
+                              .setHeight(static_cast<uint32_t>(height)),
+                          format);
 
   stbi_image_free(data);
 
@@ -310,8 +312,12 @@ void Engine::loadConfig(const EngineConfig& config) {
   transform = config.transform;
   directionalLight = config.directionalLight;
 
+  assert(config.pointLights.size() <= 8);
+  assert(config.spotLights.size() <= 8);
+
   pointLights = config.pointLights;
   spotLights = config.spotLights;
+
   entities = config.entities;
 
   for (const std::filesystem::path& path : config.assets) {
@@ -363,7 +369,8 @@ void Engine::loadStatic() {
 
   textures.push_back(texture);
   textures.push_back(normal);
-  textures.push_back(Texture{gpu.shadowMapAtlas, TextureType::Shadow, shadowMapSampler});
+  textures.push_back(
+      Texture{gpu.shadowMapAtlas, TextureType::Shadow, shadowMapSampler});
 
   Material defaultMaterial{};
   defaultMaterial.emissive = glm::vec3{0.0f};
@@ -651,7 +658,9 @@ Image Engine::loadCubemap(const std::string& type) {
   }
 
   Image cubemap = gpu.createCubemapTexture(
-      images, vk::Extent2D{}.setWidth(static_cast<uint32_t>(width)).setHeight(static_cast<uint32_t>(height)));
+      images, vk::Extent2D{}
+                  .setWidth(static_cast<uint32_t>(width))
+                  .setHeight(static_cast<uint32_t>(height)));
 
   for (const auto& data : images) {
     stbi_image_free(data);
@@ -665,17 +674,18 @@ void Engine::createDescriptors() {
   shadowMapDescriptor = gpu.createTextureDescriptor(1, gpu.shadowMapLayout);
   transformDescriptor = gpu.createUniformDescriptor(1, gpu.uniformLayout);
   lightsDescriptor = gpu.createUniformDescriptor(1, gpu.lightLayout);
-  entitiesDescriptor =
-      gpu.createUniformDescriptor(static_cast<uint32_t>(entities.size()), gpu.uniformLayout);
-  materialsDescriptor =
-      gpu.createUniformDescriptor(static_cast<uint32_t>(materials.size()), gpu.uniformLayout);
-  texturesDescriptor =
-      gpu.createTextureDescriptor(static_cast<uint32_t>(materials.size()), gpu.textureLayout);
+  entitiesDescriptor = gpu.createUniformDescriptor(
+      static_cast<uint32_t>(entities.size()), gpu.uniformLayout);
+  materialsDescriptor = gpu.createUniformDescriptor(
+      static_cast<uint32_t>(materials.size()), gpu.uniformLayout);
+  texturesDescriptor = gpu.createTextureDescriptor(
+      static_cast<uint32_t>(materials.size()), gpu.textureLayout);
 }
 
 void Engine::prepareUniformsAndDescriptors() {
   gpu.setDescriptorImage(skyboxDescriptor, skybox.image, skybox.sampler, 0, 0);
-  gpu.setDescriptorImage(shadowMapDescriptor, gpu.shadowMapAtlas, shadowMapSampler, 0, 0);
+  gpu.setDescriptorImage(shadowMapDescriptor, gpu.shadowMapAtlas,
+                         shadowMapSampler, 0, 0);
 
   transform.uniform =
       gpu.createBuffer(&transform, offsetof(Transform, uniform),
@@ -691,12 +701,12 @@ void Engine::prepareUniformsAndDescriptors() {
   directionalLight.shadowMapX = 0;
   directionalLight.shadowMapY = 0;
 
-  directionalLight.uniform =
-      gpu.createBuffer(&directionalLight, offsetof(DirectionalLight, uniform),
+  directionalLightUniform =
+      gpu.createBuffer(&directionalLight, sizeof(DirectionalLight),
                        vk::BufferUsageFlagBits::eUniformBuffer |
                            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  gpu.setDescriptorUniformBuffer(lightsDescriptor, directionalLight.uniform, 0,
+  gpu.setDescriptorUniformBuffer(lightsDescriptor, directionalLightUniform, 0,
                                  0);
 
   for (uint32_t i = 0; i < pointLights.size(); i++) {
@@ -712,14 +722,14 @@ void Engine::prepareUniformsAndDescriptors() {
     PointLight& light = pointLights[i];
     light.shadowMapX = shadowMapX;
     light.shadowMapY = shadowMapY;
-
-    light.uniform =
-        gpu.createBuffer(&light, offsetof(PointLight, uniform),
-                         vk::BufferUsageFlagBits::eUniformBuffer |
-                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-    gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 1);
   }
+
+  pointLightsUniform = gpu.createBuffer(
+      pointLights.data(), sizeof(PointLight) * pointLights.size(),
+      vk::BufferUsageFlagBits::eUniformBuffer |
+          vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
+  gpu.setDescriptorUniformBuffer(lightsDescriptor, pointLightsUniform, 0, 1);
 
   for (uint32_t i = 0; i < spotLights.size(); i++) {
     if (shadowMapX == maxShadowMaps) {
@@ -734,14 +744,14 @@ void Engine::prepareUniformsAndDescriptors() {
     SpotLight& light = spotLights[i];
     light.shadowMapX = shadowMapX;
     light.shadowMapY = shadowMapY;
-
-    light.uniform =
-        gpu.createBuffer(&light, offsetof(SpotLight, uniform),
-                         vk::BufferUsageFlagBits::eUniformBuffer |
-                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-    gpu.setDescriptorUniformBuffer(lightsDescriptor, light.uniform, i, 2);
   }
+
+  spotLightsUniform =
+      gpu.createBuffer(spotLights.data(), sizeof(SpotLight) * spotLights.size(),
+                       vk::BufferUsageFlagBits::eUniformBuffer |
+                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
+  gpu.setDescriptorUniformBuffer(lightsDescriptor, spotLightsUniform, 0, 2);
 
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
@@ -749,6 +759,7 @@ void Engine::prepareUniformsAndDescriptors() {
         gpu.createBuffer(&entity, sizeof(glm::mat4),
                          vk::BufferUsageFlagBits::eUniformBuffer |
                              vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
     gpu.setDescriptorUniformBuffer(entitiesDescriptor, entity.uniform, i, 0);
   }
 
@@ -825,8 +836,11 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
 
   vk::Rect2D scissors =
       vk::Rect2D{}
-          .setOffset(vk::Offset2D{}.setX(frameData.shadowMapX * gpu.shadowSize).setY(frameData.shadowMapY * gpu.shadowSize))
-          .setExtent(vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
+          .setOffset(vk::Offset2D{}
+                         .setX(frameData.shadowMapX * gpu.shadowSize)
+                         .setY(frameData.shadowMapY * gpu.shadowSize))
+          .setExtent(
+              vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
 
   gpu.commandBuffer.setViewport(0, 1, &viewport);
   gpu.commandBuffer.setScissor(0, 1, &scissors);
@@ -881,7 +895,8 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
           .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
           .setAddress(transformDescriptor.address.deviceAddress),
       vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
+          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
+                    vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
           .setAddress(skyboxDescriptor.address.deviceAddress),
   };
 
@@ -900,7 +915,8 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
       if (material.alphaMode != AlphaMode::Opaque) {
         float distance =
             glm::length2(camera.position - glm::vec3(entity.matrix[3]));
-        transparent.push_back({static_cast<uint32_t>(i), meshIdx, static_cast<uint32_t>(distance)});
+        transparent.push_back({static_cast<uint32_t>(i), meshIdx,
+                               static_cast<uint32_t>(distance)});
       } else {
         opaque.push_back({static_cast<uint32_t>(i), meshIdx});
       }
@@ -1078,7 +1094,7 @@ void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
       0,
       entitiesDescriptor.size * entityIdx,
       0,
-      0, 
+      0,
       0};
 
   gpu.commandBuffer.setDescriptorBufferOffsetsEXT(

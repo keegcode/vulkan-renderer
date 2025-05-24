@@ -89,7 +89,6 @@ struct SpotLight {
   uint32_t shadowMapX;
   uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
-  Buffer uniform;
 };
 
 struct PointLight {
@@ -103,7 +102,6 @@ struct PointLight {
   uint32_t shadowMapX;
   uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
-  Buffer uniform;
 };
 
 struct DirectionalLight {
@@ -114,7 +112,6 @@ struct DirectionalLight {
   uint32_t shadowMapX;
   uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
-  Buffer uniform;
 };
 
 struct Asset {
@@ -186,6 +183,10 @@ class Engine {
   DirectionalLight directionalLight;
   std::vector<PointLight> pointLights;
   std::vector<SpotLight> spotLights;
+
+  Buffer directionalLightUniform;
+  Buffer pointLightsUniform;
+  Buffer spotLightsUniform;
 
   Camera camera;
   Texture skybox;

@@ -100,10 +100,12 @@ struct DepthImageOptions {
 class GPU {
  public:
   static const uint32_t shadowSize = 1024;
-  static_assert((shadowSize & (shadowSize - 1)) == 0, "Shadow size should be 2^n");
+  static_assert((shadowSize & (shadowSize - 1)) == 0,
+                "Shadow size should be 2^n");
 
   static const uint32_t shadowAtlasSize = 2048;
-  static_assert((shadowAtlasSize & (shadowAtlasSize - 1)) == 0, "Atlas size should be 2^n");
+  static_assert((shadowAtlasSize & (shadowAtlasSize - 1)) == 0,
+                "Atlas size should be 2^n");
 
   Display display;
 

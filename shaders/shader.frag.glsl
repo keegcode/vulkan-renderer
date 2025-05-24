@@ -88,9 +88,11 @@ transform;
 float calcShadow(vec4 inLightPos, uint shadowMapX, uint shadowMapY) {
   vec4 sampleLightPos = inLightPos / inLightPos.w;
   sampleLightPos.xy = sampleLightPos.xy * 0.5 + 0.5;
-  
-  sampleLightPos.x = (sampleLightPos.x / frameData.maxShadowMaps) + (shadowMapX * (1.0 / frameData.maxShadowMaps));
-  sampleLightPos.y = (sampleLightPos.y / frameData.maxShadowMaps) + (shadowMapY * (1.0 / frameData.maxShadowMaps));
+
+  sampleLightPos.x = (sampleLightPos.x / frameData.maxShadowMaps) +
+                     (shadowMapX * (1.0 / frameData.maxShadowMaps));
+  sampleLightPos.y = (sampleLightPos.y / frameData.maxShadowMaps) +
+                     (shadowMapY * (1.0 / frameData.maxShadowMaps));
 
   float currentDepth = sampleLightPos.z;
 
@@ -116,7 +118,9 @@ vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 ambient =
       directionalLight.ambient * vec3(texture(diffuseMap, inTexCoord));
 
-  float shadow = calcShadow(directionalLight.lightSpaceMatrix * inPos, directionalLight.shadowMapX, directionalLight.shadowMapY);
+  float shadow =
+      calcShadow(directionalLight.lightSpaceMatrix * inPos,
+                 directionalLight.shadowMapX, directionalLight.shadowMapY);
 
   return (ambient + ((diffuse + specular) * shadow));
 }
@@ -146,7 +150,9 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(pointLights[idx].lightSpaceMatrix * inPos, pointLights[idx].shadowMapX, pointLights[idx].shadowMapY);
+  float shadow =
+      calcShadow(pointLights[idx].lightSpaceMatrix * inPos,
+                 pointLights[idx].shadowMapX, pointLights[idx].shadowMapY);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -186,11 +192,13 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= intensity;
   specular *= intensity;
 
-  //ambient *= attenuation;
-  //diffuse *= attenuation;
-  //specular *= attenuation;
+  // ambient *= attenuation;
+  // diffuse *= attenuation;
+  // specular *= attenuation;
 
-  float shadow = calcShadow(spotLights[idx].lightSpaceMatrix * inPos, spotLights[idx].shadowMapX, spotLights[idx].shadowMapY);
+  float shadow =
+      calcShadow(spotLights[idx].lightSpaceMatrix * inPos,
+                 spotLights[idx].shadowMapX, spotLights[idx].shadowMapY);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -202,8 +210,8 @@ float linearizeDepth(float depth) {
 }
 
 vec3 calcSkyboxReflection(vec3 viewDir, vec3 normal, vec3 color) {
-    vec3 r = refract(-viewDir, normal, 0.66);
-    return mix(color, texture(skybox, r).rgb, (1.0 - material.roughness));
+  vec3 r = refract(-viewDir, normal, 0.66);
+  return mix(color, texture(skybox, r).rgb, (1.0 - material.roughness));
 }
 
 void main() {
@@ -236,9 +244,10 @@ void main() {
 
   float c = linearizeDepth(gl_FragCoord.z);
   vec4 fog = vec4(c, c, c, 1.0);
-    
+
   color.xyz = calcSkyboxReflection(viewDir, normal, color.xyz);
   color = inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0);
-    
-  outColor = mix(color, fog, c * 0.03);
+
+  outColor = vec4(pointLights[1].diffuse, 1.0);
+  // outColor = mix(color, fog, c * 0.03);
 }

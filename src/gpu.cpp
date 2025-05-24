@@ -32,8 +32,8 @@ void GPU::createInstance() {
           .set_app_name("VkRenderer")
           .require_api_version(1, 3)
           .enable_extensions(display.vulkanExtensions)
-          //.enable_validation_layers(true)
-          //.use_default_debug_messenger()
+          .enable_validation_layers(true)
+          .use_default_debug_messenger()
           .build();
 
   VKB_ASSERT(instanceResult);
@@ -135,7 +135,9 @@ void GPU::createSwapchain() {
   int32_t w{}, h{};
   SDL_GetWindowSize(display.window, &w, &h);
 
-  vk::Extent2D extent = vk::Extent2D{}.setWidth(static_cast<uint32_t>(w)).setHeight(static_cast<uint32_t>(h));
+  vk::Extent2D extent = vk::Extent2D{}
+                            .setWidth(static_cast<uint32_t>(w))
+                            .setHeight(static_cast<uint32_t>(h));
 
   vk::SurfaceFormatKHR surfaceFormat{};
   surfaceFormat.format = vk::Format::eB8G8R8A8Srgb;
@@ -288,7 +290,7 @@ void GPU::createDescriptorSetLayouts() {
 
   vk::DescriptorSetLayoutBinding skyboxBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
-    
+
   vk::DescriptorSetLayoutBinding shadowMapBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
 
@@ -1352,8 +1354,8 @@ void GPU::beginShadowPass() const {
 
   vk::RenderingInfo renderingInfo =
       vk::RenderingInfo{}
-          .setRenderArea(
-              vk::Rect2D{}.setExtent(vk::Extent2D{shadowAtlasSize, shadowAtlasSize}))
+          .setRenderArea(vk::Rect2D{}.setExtent(
+              vk::Extent2D{shadowAtlasSize, shadowAtlasSize}))
           .setLayerCount(1)
           .setViewMask(0)
           .setPDepthAttachment(&depthAttachment);
@@ -1717,8 +1719,8 @@ void GPU::createShadowPipeline() {
 
 void GPU::createPipelines() {
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      textureLayout, uniformLayout,   lightLayout,
-      uniformLayout, shadowMapLayout, uniformLayout, skyboxLayout};
+      textureLayout,   uniformLayout, lightLayout, uniformLayout,
+      shadowMapLayout, uniformLayout, skyboxLayout};
 
   entitiesPipeline =
       createPipeline(loadShader("./shaders/shader.vert.glsl.spv",
@@ -1749,5 +1751,5 @@ void GPU::beginRecordingCommands() const {
 void GPU::createShadowMapAtlas() {
   shadowMapAtlas = createDepthImage(
       {vk::SampleCountFlagBits::e1, vk::ImageUsageFlagBits::eSampled,
-      vk::Extent2D{shadowAtlasSize, shadowAtlasSize}});
+       vk::Extent2D{shadowAtlasSize, shadowAtlasSize}});
 }
