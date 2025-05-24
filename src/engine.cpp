@@ -280,8 +280,8 @@ void Engine::destroy() {
 
   gpu.destroyBuffer(transform.uniform);
   gpu.destroyBuffer(directionalLightUniform);
-  gpu.destroyBuffer(spotLightsUniform);
-  gpu.destroyBuffer(pointLightsUniform);
+  gpu.destroyBuffer(spotLightsBuffer);
+  gpu.destroyBuffer(pointLightsBuffer);
 
   gpu.destroySwapchainResources();
 
@@ -311,9 +311,6 @@ Image Engine::loadImage(const std::filesystem::path& path, vk::Format format) {
 void Engine::loadConfig(const EngineConfig& config) {
   transform = config.transform;
   directionalLight = config.directionalLight;
-
-  assert(config.pointLights.size() <= 8);
-  assert(config.spotLights.size() <= 8);
 
   pointLights = config.pointLights;
   spotLights = config.spotLights;
@@ -466,6 +463,10 @@ void Engine::loadMesh(Asset& asset,
       vertex.tangent[0] = assimpMesh->mTangents[j].x;
       vertex.tangent[1] = assimpMesh->mTangents[j].y;
       vertex.tangent[2] = assimpMesh->mTangents[j].z;
+
+      vertex.bitangent[0] = assimpMesh->mBitangents[j].x;
+      vertex.bitangent[1] = assimpMesh->mBitangents[j].y;
+      vertex.bitangent[2] = assimpMesh->mBitangents[j].z;
     }
 
     vertex.uv[0] = 0.0f;
@@ -724,12 +725,14 @@ void Engine::prepareUniformsAndDescriptors() {
     light.shadowMapY = shadowMapY;
   }
 
-  pointLightsUniform = gpu.createBuffer(
-      pointLights.data(), sizeof(PointLight) * pointLights.size(),
-      vk::BufferUsageFlagBits::eUniformBuffer |
-          vk::BufferUsageFlagBits::eShaderDeviceAddress);
+  if (pointLights.size()) {
+    pointLightsBuffer = gpu.createBuffer(
+        pointLights.data(), sizeof(PointLight) * pointLights.size(),
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  gpu.setDescriptorUniformBuffer(lightsDescriptor, pointLightsUniform, 0, 1);
+    gpu.setDescriptorStorageBuffer(lightsDescriptor, pointLightsBuffer, 0, 1);
+  }
 
   for (uint32_t i = 0; i < spotLights.size(); i++) {
     if (shadowMapX == maxShadowMaps) {
@@ -746,12 +749,14 @@ void Engine::prepareUniformsAndDescriptors() {
     light.shadowMapY = shadowMapY;
   }
 
-  spotLightsUniform =
-      gpu.createBuffer(spotLights.data(), sizeof(SpotLight) * spotLights.size(),
-                       vk::BufferUsageFlagBits::eUniformBuffer |
-                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
+  if (spotLights.size()) {
+    spotLightsBuffer =
+        gpu.createBuffer(spotLights.data(), sizeof(SpotLight) * spotLights.size(),
+                         vk::BufferUsageFlagBits::eStorageBuffer |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  gpu.setDescriptorUniformBuffer(lightsDescriptor, spotLightsUniform, 0, 2);
+    gpu.setDescriptorStorageBuffer(lightsDescriptor, spotLightsBuffer, 0, 2);
+  }
 
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];

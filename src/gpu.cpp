@@ -271,22 +271,18 @@ void GPU::createDescriptorSetLayouts() {
           .setFlags(
               vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
 
-  std::vector<vk::DescriptorSetLayoutBinding> lightBindings = {
-      vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(0),
-      vk::DescriptorSetLayoutBinding{uniformBinding}
-          .setBinding(1)
-          .setDescriptorCount(8),
-      vk::DescriptorSetLayoutBinding{uniformBinding}
-          .setBinding(2)
-          .setDescriptorCount(8),
-  };
-
   vk::DescriptorSetLayoutBinding storageBufferBinding =
       vk::DescriptorSetLayoutBinding{}
           .setBinding(0)
           .setDescriptorCount(1)
           .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
           .setDescriptorType(vk::DescriptorType::eStorageBuffer);
+
+  std::vector<vk::DescriptorSetLayoutBinding> lightBindings = {
+      vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(0),
+      vk::DescriptorSetLayoutBinding{storageBufferBinding}.setBinding(1),
+      vk::DescriptorSetLayoutBinding{storageBufferBinding}.setBinding(2),
+  };
 
   vk::DescriptorSetLayoutBinding skyboxBinding =
       vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
@@ -1126,10 +1122,17 @@ Pipeline GPU::createPipeline(
           .setOffset(offsetof(Vertex, tangent))
           .setFormat(vk::Format::eR32G32B32Sfloat);
 
+  vk::VertexInputAttributeDescription vertexBitangentAttributeDescription =
+      vk::VertexInputAttributeDescription{}
+          .setBinding(0)
+          .setLocation(5)
+          .setOffset(offsetof(Vertex, bitangent))
+          .setFormat(vk::Format::eR32G32B32Sfloat);
+
   std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
       vertexPositionAttributeDescription,     vertexColorAttributeDescription,
       vertexTextureCoordAttributeDescription, vertexNormalsAttributeDescription,
-      vertexTangentAttributeDescription,
+      vertexTangentAttributeDescription, vertexBitangentAttributeDescription
   };
 
   vk::PipelineShaderStageCreateInfo vertexShaderStage =

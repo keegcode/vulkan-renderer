@@ -58,10 +58,10 @@ struct Material {
   glm::vec3 color = glm::vec3{1.0f};
   float transmissionFactor = 0.0f;
   float roughness = 1.0f;
+  uint32_t normalTextureIdx = 1;
   Buffer uniform;
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
-  uint32_t normalTextureIdx = 1;
   uint32_t heightTextureIdx = 0;
   vk::CullModeFlagBits cullMode = vk::CullModeFlagBits::eBack;
   AlphaMode alphaMode = AlphaMode::Opaque;
@@ -97,9 +97,8 @@ struct PointLight {
   glm::vec3 ambient;
   float linear;
   glm::vec3 diffuse;
-  float quadratic;
-  glm::vec3 specular;
   uint32_t shadowMapX;
+  glm::vec3 specular;
   uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
 };
@@ -185,8 +184,8 @@ class Engine {
   std::vector<SpotLight> spotLights;
 
   Buffer directionalLightUniform;
-  Buffer pointLightsUniform;
-  Buffer spotLightsUniform;
+  Buffer pointLightsBuffer;
+  Buffer spotLightsBuffer;
 
   Camera camera;
   Texture skybox;

@@ -39,8 +39,8 @@ int32_t main() {
   config.directionalLight.direction =
       glm::normalize(glm::vec3{0.0f, -150.0f, 0.0f});
   config.directionalLight.ambient = glm::vec3{0.1f};
-  config.directionalLight.diffuse = glm::vec3{0.1f};
-  config.directionalLight.specular = glm::vec3{0.1f};
+  config.directionalLight.diffuse = glm::vec3{0.4f};
+  config.directionalLight.specular = glm::vec3{0.4f};
 
   config.directionalLight.lightSpaceMatrix =
       glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 10.0f, 400.0f);
@@ -50,26 +50,18 @@ int32_t main() {
                   glm::vec3{0.0f, 1.0f, 0.0f});
 
   PointLight pointLight{};
-  pointLight.position = glm::vec3{0.0f, 10.0f, -50.0f};
+  pointLight.position = glm::vec3{0.0f, 100.0f, -100.0f};
   pointLight.ambient = glm::vec3{0.05f};
-  pointLight.diffuse = glm::vec3{1.0f};
-  pointLight.specular = glm::vec3{0.4f};
+  pointLight.diffuse = glm::vec3{0.25f};
+  pointLight.specular = glm::vec3{0.25f};
   pointLight.constant = 1.0f;
-  pointLight.linear = 1.0f;
+  pointLight.linear = 0.01f;
   pointLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(90.0f), 1.0f, 1.0f, 200.0f);
+      glm::perspective(glm::radians(90.0f), 1.0f, 1.0f, 500.0f);
   pointLight.lightSpaceMatrix[1][1] *= -1;
   pointLight.lightSpaceMatrix *= glm::lookAt(
       pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  config.pointLights.push_back(pointLight);
-
-  pointLight.position = glm::vec3{0.0f, 10.0f, 50.0f};
-  pointLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(90.0f), 1.0f, 1.0f, 200.0f);
-  pointLight.lightSpaceMatrix[1][1] *= -1;
-  pointLight.lightSpaceMatrix *= glm::lookAt(
-      pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  config.pointLights.push_back(pointLight);
+  //config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0f, 100.0f, 5.0f};
@@ -86,27 +78,6 @@ int32_t main() {
   spotLight.lightSpaceMatrix[1][1] *= -1;
   spotLight.lightSpaceMatrix *= glm::lookAt(
       spotLight.position, spotLight.direction, glm::vec3{0.0f, 1.0f, 0.0f});
-  // config.spotLights.push_back(spotLight);
-
-  spotLight.position = glm::vec3{0.0, 50.0f, 60.0f};
-  spotLight.diffuse = glm::vec3{0.2};
-  spotLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(80.0f), 1.0f, 1.0f, 500.0f);
-  spotLight.lightSpaceMatrix[1][1] *= -1;
-  spotLight.lightSpaceMatrix *= glm::lookAt(
-      spotLight.position, spotLight.direction, glm::vec3{0.0f, 1.0f, 0.0f});
-  spotLight.direction = glm::vec3{0.0, -1.0, -0.5f};
-  //config.spotLights.push_back(spotLight);
-
-  spotLight.position = glm::vec3{0.0, 5.0f, -100.0f};
-  spotLight.diffuse = glm::vec3{1.0};
-  spotLight.linear = 0.01f;
-  spotLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(80.0f), 1.0f, 1.0f, 600.0f);
-  spotLight.lightSpaceMatrix[1][1] *= -1;
-  spotLight.lightSpaceMatrix *= glm::lookAt(
-      spotLight.position, spotLight.direction, glm::vec3{0.0f, 1.0f, 0.0f});
-  spotLight.direction = glm::vec3{0.0, 0.0, 1.0f};
   config.spotLights.push_back(spotLight);
 
   Entity sponza{};
