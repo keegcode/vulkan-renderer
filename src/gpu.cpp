@@ -1130,10 +1130,12 @@ Pipeline GPU::createPipeline(
           .setFormat(vk::Format::eR32G32B32Sfloat);
 
   std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
-      vertexPositionAttributeDescription,     vertexColorAttributeDescription,
-      vertexTextureCoordAttributeDescription, vertexNormalsAttributeDescription,
-      vertexTangentAttributeDescription, vertexBitangentAttributeDescription
-  };
+      vertexPositionAttributeDescription,
+      vertexColorAttributeDescription,
+      vertexTextureCoordAttributeDescription,
+      vertexNormalsAttributeDescription,
+      vertexTangentAttributeDescription,
+      vertexBitangentAttributeDescription};
 
   vk::PipelineShaderStageCreateInfo vertexShaderStage =
       vk::PipelineShaderStageCreateInfo{}

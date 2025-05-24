@@ -750,10 +750,10 @@ void Engine::prepareUniformsAndDescriptors() {
   }
 
   if (spotLights.size()) {
-    spotLightsBuffer =
-        gpu.createBuffer(spotLights.data(), sizeof(SpotLight) * spotLights.size(),
-                         vk::BufferUsageFlagBits::eStorageBuffer |
-                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
+    spotLightsBuffer = gpu.createBuffer(
+        spotLights.data(), sizeof(SpotLight) * spotLights.size(),
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
     gpu.setDescriptorStorageBuffer(lightsDescriptor, spotLightsBuffer, 0, 2);
   }

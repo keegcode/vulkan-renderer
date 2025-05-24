@@ -80,7 +80,8 @@ struct SpotLight {
 
 layout(scalar, set = 2, binding = 2) readonly buffer SpotLights {
   SpotLight data[];
-} spotLights;
+}
+spotLights;
 
 layout(set = 4, binding = 0) uniform sampler2DShadow shadowMapAtlas;
 
@@ -138,30 +139,30 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 lightDir = normalize(lightPos - fragPos);
 
   float diff = max(dot(lightDir, normal), 0.0);
-  vec3 diffuse =
-      pointLights.data[idx].diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
+  vec3 diffuse = pointLights.data[idx].diffuse * diff *
+                 vec3(texture(diffuseMap, inTexCoord));
 
   vec3 halfDir = normalize(vec3(lightDir + viewDir));
 
   float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);
-  vec3 specular =
-      pointLights.data[idx].specular * spec * vec3(texture(specularMap, inTexCoord));
+  vec3 specular = pointLights.data[idx].specular * spec *
+                  vec3(texture(specularMap, inTexCoord));
 
   vec3 ambient =
       pointLights.data[idx].ambient * vec3(texture(diffuseMap, inTexCoord));
 
   float distance = length(lightDir);
 
-  float attenuation =
-      1.0 / (pointLights.data[idx].constant + pointLights.data[idx].linear * distance);
+  float attenuation = 1.0 / (pointLights.data[idx].constant +
+                             pointLights.data[idx].linear * distance);
 
   ambient *= attenuation;
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow =
-      calcShadow(pointLights.data[idx].lightSpaceMatrix * inPos,
-                 pointLights.data[idx].shadowMapX, pointLights.data[idx].shadowMapY);
+  float shadow = calcShadow(pointLights.data[idx].lightSpaceMatrix * inPos,
+                            pointLights.data[idx].shadowMapX,
+                            pointLights.data[idx].shadowMapY);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -181,23 +182,24 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
     return ambient;
   }
 
-  float epsilon = spotLights.data[idx].cutOff - spotLights.data[idx].outerCutOff;
+  float epsilon =
+      spotLights.data[idx].cutOff - spotLights.data[idx].outerCutOff;
   float intensity =
       clamp((theta - spotLights.data[idx].outerCutOff) / epsilon, 0.0, 1.0);
 
   float diff = max(dot(fragLightDir, normal), 0.0);
-  vec3 diffuse =
-      spotLights.data[idx].diffuse * diff * vec3(texture(diffuseMap, inTexCoord));
+  vec3 diffuse = spotLights.data[idx].diffuse * diff *
+                 vec3(texture(diffuseMap, inTexCoord));
 
   vec3 halfDir = normalize(fragLightDir + viewDir);
 
   float spec = pow(max(dot(normal, halfDir), 0.0), material.shininess);
-  vec3 specular =
-      spotLights.data[idx].specular * spec * vec3(texture(specularMap, inTexCoord));
+  vec3 specular = spotLights.data[idx].specular * spec *
+                  vec3(texture(specularMap, inTexCoord));
 
   float distance = length(lightVector);
-  float attenuation =
-      1.0 / (spotLights.data[idx].constant + spotLights.data[idx].linear * distance);
+  float attenuation = 1.0 / (spotLights.data[idx].constant +
+                             spotLights.data[idx].linear * distance);
 
   diffuse *= intensity;
   specular *= intensity;
@@ -206,9 +208,9 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow =
-      calcShadow(spotLights.data[idx].lightSpaceMatrix * inPos,
-                 spotLights.data[idx].shadowMapX, spotLights.data[idx].shadowMapY);
+  float shadow = calcShadow(spotLights.data[idx].lightSpaceMatrix * inPos,
+                            spotLights.data[idx].shadowMapX,
+                            spotLights.data[idx].shadowMapY);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -230,7 +232,8 @@ void main() {
   vec3 normal = normalize(inNormal);
 
   if (material.normalMapTextureIdx != 1) {
-    mat3 TBN = mat3(normalize(inTangent), normalize(inBitangent), normalize(inNormal));
+    mat3 TBN =
+        mat3(normalize(inTangent), normalize(inBitangent), normalize(inNormal));
     normal = texture(normalMap, inTexCoord).rgb;
     normal = normal * 2.0 - 1.0;
     normal = normalize(TBN * normal);

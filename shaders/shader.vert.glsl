@@ -35,12 +35,12 @@ layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
 entity;
 
 void main() {
-
   vec4 pos = (entity.matrix * transform.model * vec4(inPosition, 1.0));
 
   vec3 normal = vec3(entity.matrix * transform.model * vec4(inNormal, 0.0));
   vec3 tangent = vec3(entity.matrix * transform.model * vec4(inTangent, 0.0));
-  vec3 bitangent = vec3(entity.matrix * transform.model * vec4(inBitangent, 0.0));
+  vec3 bitangent =
+      vec3(entity.matrix * transform.model * vec4(inBitangent, 0.0));
 
   outTexCoord = inTexCoord;
   outColor = inColor;

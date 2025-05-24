@@ -61,7 +61,7 @@ int32_t main() {
   pointLight.lightSpaceMatrix[1][1] *= -1;
   pointLight.lightSpaceMatrix *= glm::lookAt(
       pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  //config.pointLights.push_back(pointLight);
+  // config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0f, 100.0f, 5.0f};
