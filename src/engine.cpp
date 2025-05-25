@@ -280,8 +280,14 @@ void Engine::destroy() {
 
   gpu.destroyBuffer(transform.uniform);
   gpu.destroyBuffer(directionalLightUniform);
-  gpu.destroyBuffer(spotLightsBuffer);
-  gpu.destroyBuffer(pointLightsBuffer);
+
+  if (spotLights.size()) {
+	  gpu.destroyBuffer(spotLightsBuffer);
+  }
+
+  if (pointLights.size()) {
+	  gpu.destroyBuffer(pointLightsBuffer);
+  }
 
   gpu.destroySwapchainResources();
 

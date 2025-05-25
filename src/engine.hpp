@@ -59,10 +59,10 @@ struct Material {
   float transmissionFactor = 0.0f;
   float roughness = 1.0f;
   uint32_t normalTextureIdx = 1;
-  Buffer uniform;
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
   uint32_t heightTextureIdx = 0;
+  Buffer uniform;
   vk::CullModeFlagBits cullMode = vk::CullModeFlagBits::eBack;
   AlphaMode alphaMode = AlphaMode::Opaque;
 };

@@ -19,22 +19,30 @@ layout(scalar, push_constant) uniform FrameData {
   vec3 camera;
   uint pointLights;
   uint spotLights;
+  uint entityId;
+  uint materialId;
 }
 frameData;
 
-layout(scalar, set = 5, binding = 0) uniform Transform {
+layout(scalar, set = 0, binding = 0) uniform Transform {
   mat4 model;
   mat4 view;
   mat4 projection;
 }
 transform;
 
-layout(scalar, set = 3, binding = 0) uniform EntityBuffer {
-  mat4 matrix;
+struct Entity {
+    mat4 matrix;
+};
+
+layout(scalar, set = 1, binding = 0) readonly buffer Entities {
+  Entity data[];
 }
-entity;
+entities;
 
 void main() {
+  Entity entity = entities.data[frameData.entityId];
+
   vec4 pos = (entity.matrix * transform.model * vec4(inPosition, 1.0));
 
   vec3 normal = vec3(entity.matrix * transform.model * vec4(inNormal, 0.0));

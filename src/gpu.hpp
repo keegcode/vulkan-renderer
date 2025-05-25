@@ -110,6 +110,8 @@ class GPU {
 
   Display display;
 
+  vk::DescriptorPool descriptorPool;
+
   Pipeline entitiesPipeline;
   Pipeline skyboxPipeline;
   Pipeline shadowsPipeline;
