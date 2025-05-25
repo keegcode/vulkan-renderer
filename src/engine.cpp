@@ -118,7 +118,7 @@ void Engine::drawFrame(uint64_t deltaTime) {
 
   drawEntities(mainPassFrameData);
 
-  SkyboxFrameData skyboxFrameData{};
+  SkyboxPassFrameData skyboxFrameData{};
   skyboxFrameData.matrix = transform.projection *
                            glm::mat4{glm::mat3{transform.view}} *
                            transform.model;
@@ -131,7 +131,7 @@ void Engine::drawFrame(uint64_t deltaTime) {
   gpu.submit(static_cast<uint32_t>(imageIndex));
 };
 
-void Engine::drawSkybox(const SkyboxFrameData& frameData) {
+void Engine::drawSkybox(const SkyboxPassFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.skyboxPipeline.pipeline);
 
@@ -143,7 +143,7 @@ void Engine::drawSkybox(const SkyboxFrameData& frameData) {
   gpu.commandBuffer.pushConstants(
       gpu.skyboxPipeline.layout,
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-      sizeof(SkyboxFrameData), &frameData);
+      sizeof(SkyboxPassFrameData), &frameData);
 
   std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
       vk::DescriptorBufferBindingInfoEXT{}
@@ -677,23 +677,9 @@ Image Engine::loadCubemap(const std::string& type) {
 }
 
 void Engine::createDescriptors() {
-  skyboxDescriptor = gpu.createTextureDescriptor(1, gpu.skyboxLayout);
-  shadowMapDescriptor = gpu.createTextureDescriptor(1, gpu.shadowMapLayout);
-  transformDescriptor = gpu.createUniformDescriptor(1, gpu.uniformLayout);
-  lightsDescriptor = gpu.createUniformDescriptor(1, gpu.lightLayout);
-  entitiesDescriptor = gpu.createUniformDescriptor(
-      static_cast<uint32_t>(entities.size()), gpu.uniformLayout);
-  materialsDescriptor = gpu.createUniformDescriptor(
-      static_cast<uint32_t>(materials.size()), gpu.uniformLayout);
-  texturesDescriptor = gpu.createTextureDescriptor(
-      static_cast<uint32_t>(materials.size()), gpu.textureLayout);
 }
 
 void Engine::prepareUniformsAndDescriptors() {
-  gpu.setDescriptorImage(skyboxDescriptor, skybox.image, skybox.sampler, 0, 0);
-  gpu.setDescriptorImage(shadowMapDescriptor, gpu.shadowMapAtlas,
-                         shadowMapSampler, 0, 0);
-
   transform.uniform =
       gpu.createBuffer(&transform, offsetof(Transform, uniform),
                        vk::BufferUsageFlagBits::eUniformBuffer |
@@ -871,7 +857,7 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
 
 void Engine::drawEntities(const MainPassFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                 gpu.entitiesPipeline.pipeline);
+                                 gpu.mainPipeline.pipeline);
 
   std::vector<vk::DeviceSize> offsets = {0};
 
@@ -880,7 +866,7 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
   gpu.commandBuffer.setDepthWriteEnable(1);
 
   gpu.commandBuffer.pushConstants(
-      gpu.entitiesPipeline.layout,
+      gpu.mainPipeline.layout,
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
       sizeof(MainPassFrameData), &frameData);
 
@@ -1109,7 +1095,7 @@ void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
       0};
 
   gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-      vk::PipelineBindPoint::eGraphics, gpu.entitiesPipeline.layout, 0, 7,
+      vk::PipelineBindPoint::eGraphics, gpu.mainPipeline.layout, 0, 7,
       descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
 
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);

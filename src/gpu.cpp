@@ -1,7 +1,6 @@
 #include "gpu.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cassert>
-#include <cmath>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
@@ -43,14 +42,7 @@ void GPU::createInstance() {
 };
 
 void GPU::destroy() const {
-  device.destroyDescriptorSetLayout(uniformLayout);
-  device.destroyDescriptorSetLayout(textureLayout);
-  device.destroyDescriptorSetLayout(lightLayout);
-  device.destroyDescriptorSetLayout(storageBufferLayout);
-  device.destroyDescriptorSetLayout(skyboxLayout);
-  device.destroyDescriptorSetLayout(shadowMapLayout);
-
-  destroyPipeline(entitiesPipeline);
+  destroyPipeline(mainPipeline);
   destroyPipeline(skyboxPipeline);
   destroyPipeline(shadowsPipeline);
 
@@ -95,8 +87,9 @@ void GPU::pickPhysicalDevice() {
               vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(
                   1))
           .add_required_extension_features(
-              vk::PhysicalDeviceDescriptorBufferFeaturesEXT{}
-                  .setDescriptorBuffer(1))
+              vk::PhysicalDeviceDescriptorIndexingFeaturesEXT{}
+                  .setShaderSampledImageArrayNonUniformIndexing(1)
+                  .setRuntimeDescriptorArray(1))
           .add_required_extension_features(
               vk::PhysicalDeviceBufferDeviceAddressFeatures{}
                   .setBufferDeviceAddress(1))
@@ -235,282 +228,9 @@ void GPU::destroySampler(const vk::Sampler& sampler) const {
 }
 
 void GPU::createDescriptorSetLayouts() {
-  vk::DescriptorSetLayoutBinding imageSamplerBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
-
-  vk::DescriptorSetLayoutBinding uniformBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-  vk::DescriptorSetLayoutBinding diffuseMapBidning =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
-
-  vk::DescriptorSetLayoutBinding specularMapBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(1);
-
-  vk::DescriptorSetLayoutBinding normalMapBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(2);
-
-  vk::DescriptorSetLayoutBinding heightMapBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(3);
-
-  std::vector<vk::DescriptorSetLayoutBinding> textureBindings{
-      diffuseMapBidning, specularMapBinding, normalMapBinding,
-      heightMapBinding};
-
-  vk::DescriptorSetLayoutCreateInfo textureSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(textureBindings)
-          .setBindingCount(static_cast<uint32_t>(textureBindings.size()))
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::DescriptorSetLayoutBinding storageBufferBinding =
-      vk::DescriptorSetLayoutBinding{}
-          .setBinding(0)
-          .setDescriptorCount(1)
-          .setStageFlags(vk::ShaderStageFlagBits::eAllGraphics)
-          .setDescriptorType(vk::DescriptorType::eStorageBuffer);
-
-  std::vector<vk::DescriptorSetLayoutBinding> lightBindings = {
-      vk::DescriptorSetLayoutBinding{uniformBinding}.setBinding(0),
-      vk::DescriptorSetLayoutBinding{storageBufferBinding}.setBinding(1),
-      vk::DescriptorSetLayoutBinding{storageBufferBinding}.setBinding(2),
-  };
-
-  vk::DescriptorSetLayoutBinding skyboxBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
-
-  vk::DescriptorSetLayoutBinding shadowMapBinding =
-      vk::DescriptorSetLayoutBinding{imageSamplerBinding}.setBinding(0);
-
-  std::vector<vk::DescriptorSetLayoutBinding> skyboxBindings{skyboxBinding};
-
-  vk::DescriptorSetLayoutCreateInfo lightSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(lightBindings)
-          .setBindingCount(static_cast<uint32_t>(lightBindings.size()))
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::DescriptorSetLayoutCreateInfo uniformSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(uniformBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::DescriptorSetLayoutCreateInfo storageBufferSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(storageBufferBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::DescriptorSetLayoutCreateInfo skyboxSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(skyboxBindings)
-          .setBindingCount(static_cast<uint32_t>(skyboxBindings.size()))
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::DescriptorSetLayoutCreateInfo shadowMapSetLayoutCreateInfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setBindings(shadowMapBinding)
-          .setBindingCount(1)
-          .setFlags(
-              vk::DescriptorSetLayoutCreateFlagBits::eDescriptorBufferEXT);
-
-  textureLayout =
-      device.createDescriptorSetLayout(textureSetLayoutCreateInfo, nullptr);
-
-  uniformLayout =
-      device.createDescriptorSetLayout(uniformSetLayoutCreateInfo, nullptr);
-
-  lightLayout =
-      device.createDescriptorSetLayout(lightSetLayoutCreateInfo, nullptr);
-
-  storageBufferLayout = device.createDescriptorSetLayout(
-      storageBufferSetLayoutCreateInfo, nullptr);
-
-  skyboxLayout =
-      device.createDescriptorSetLayout(skyboxSetLayoutCreateInfo, nullptr);
-
-  shadowMapLayout =
-      device.createDescriptorSetLayout(shadowMapSetLayoutCreateInfo, nullptr);
 }
 
-Descriptor GPU::createStorageBufferDescriptor(
-    const vk::DescriptorSetLayout& layout) const {
-  Descriptor descriptor{};
-  descriptor.layout = layout;
-  descriptor.type = vk::DescriptorType::eStorageBuffer;
-
-  descriptor.size = utils::getAlignedSize(
-      device.getDescriptorSetLayoutSizeEXT(layout, dld),
-      descriptorBufferProperties.descriptorBufferOffsetAlignment);
-
-  descriptor.buffer =
-      createBuffer(descriptor.size,
-                   vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                       vk::BufferUsageFlagBits::eShaderDeviceAddress,
-                   VMA_MEMORY_USAGE_AUTO,
-                   VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-
-  descriptor.address.setDeviceAddress(
-      getBufferDeviceAddress(descriptor.buffer));
-
-  return descriptor;
-};
-
-Descriptor GPU::createUniformDescriptor(
-    uint32_t count,
-    const vk::DescriptorSetLayout& layout) const {
-  Descriptor descriptor{};
-  descriptor.layout = layout;
-  descriptor.type = vk::DescriptorType::eUniformBuffer;
-
-  descriptor.size = utils::getAlignedSize(
-      device.getDescriptorSetLayoutSizeEXT(layout, dld),
-      descriptorBufferProperties.descriptorBufferOffsetAlignment);
-
-  descriptor.buffer =
-      createBuffer(descriptor.size * static_cast<uint32_t>(count),
-                   vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                       vk::BufferUsageFlagBits::eShaderDeviceAddress,
-                   VMA_MEMORY_USAGE_AUTO,
-                   VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-
-  descriptor.address.setDeviceAddress(
-      getBufferDeviceAddress(descriptor.buffer));
-
-  return descriptor;
-};
-
-Descriptor GPU::createTextureDescriptor(
-    uint32_t count,
-    const vk::DescriptorSetLayout& layout) const {
-  Descriptor descriptor{};
-  descriptor.layout = layout;
-  descriptor.type = vk::DescriptorType::eCombinedImageSampler;
-
-  descriptor.size = utils::getAlignedSize(
-      device.getDescriptorSetLayoutSizeEXT(layout, dld),
-      descriptorBufferProperties.descriptorBufferOffsetAlignment);
-
-  descriptor.buffer =
-      createBuffer(descriptor.size * static_cast<uint32_t>(count),
-                   vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                       vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
-                       vk::BufferUsageFlagBits::eShaderDeviceAddress,
-                   VMA_MEMORY_USAGE_AUTO,
-                   VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-
-  descriptor.address.setDeviceAddress(
-      getBufferDeviceAddress(descriptor.buffer));
-
-  return descriptor;
-};
-
-void GPU::setDescriptorStorageBuffer(const Descriptor& descriptor,
-                                     const Buffer& src,
-                                     uint32_t index,
-                                     uint32_t binding) const {
-  char* storageBufferDescriptorPtr =
-      reinterpret_cast<char*>(descriptor.buffer.allocationInfo.pMappedData);
-
-  vk::DescriptorAddressInfoEXT storageBufferDescriptorAddressInfo =
-      vk::DescriptorAddressInfoEXT{}
-          .setRange(src.size)
-          .setFormat(vk::Format::eUndefined)
-          .setAddress(getBufferDeviceAddress(src));
-
-  vk::DescriptorGetInfoEXT storageBufferDescriptorInfo =
-      vk::DescriptorGetInfoEXT{}
-          .setData(vk::DescriptorDataEXT{}.setPStorageBuffer(
-              &storageBufferDescriptorAddressInfo))
-          .setType(descriptor.type);
-
-  vk::DeviceSize offset = getDescriptorBindingOffset(descriptor, binding);
-
-  device.getDescriptorEXT(
-      storageBufferDescriptorInfo,
-      descriptorBufferProperties.storageBufferDescriptorSize,
-      storageBufferDescriptorPtr + (index * descriptor.size) + offset, dld);
-}
-
-void GPU::setDescriptorUniformBuffer(const Descriptor& descriptor,
-                                     const Buffer& src,
-                                     uint32_t index,
-                                     uint32_t binding) const {
-  char* uniformDescriptorPtr =
-      reinterpret_cast<char*>(descriptor.buffer.allocationInfo.pMappedData);
-
-  vk::DescriptorAddressInfoEXT uniformDescriptorAddressInfo =
-      vk::DescriptorAddressInfoEXT{}
-          .setRange(src.size)
-          .setFormat(vk::Format::eUndefined)
-          .setAddress(getBufferDeviceAddress(src));
-  vk::DescriptorGetInfoEXT uniformDescriptorInfo =
-      vk::DescriptorGetInfoEXT{}
-          .setData(vk::DescriptorDataEXT{}.setPUniformBuffer(
-              &uniformDescriptorAddressInfo))
-          .setType(descriptor.type);
-
-  vk::DeviceSize offset = getDescriptorBindingOffset(descriptor, binding);
-
-  device.getDescriptorEXT(
-      uniformDescriptorInfo,
-      descriptorBufferProperties.uniformBufferDescriptorSize,
-      uniformDescriptorPtr + (index * descriptor.size) + offset, dld);
-}
-
-void GPU::setDescriptorImage(const Descriptor& descriptor,
-                             const Image& src,
-                             const vk::Sampler& sampler,
-                             uint32_t index,
-                             uint32_t binding) const {
-  char* textureDescriptorPtr =
-      reinterpret_cast<char*>(descriptor.buffer.allocationInfo.pMappedData);
-
-  vk::DescriptorImageInfo textureProjectionDescriptorImageInfo =
-      vk::DescriptorImageInfo{}
-          .setSampler(sampler)
-          .setImageView(src.view)
-          .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-  vk::DescriptorGetInfoEXT textureDescriptorInfo =
-      vk::DescriptorGetInfoEXT{}
-          .setData(vk::DescriptorDataEXT{}.setPCombinedImageSampler(
-              &textureProjectionDescriptorImageInfo))
-          .setType(descriptor.type);
-
-  vk::DeviceSize offset = getDescriptorBindingOffset(descriptor, binding);
-
-  device.getDescriptorEXT(
-      textureDescriptorInfo,
-      descriptorBufferProperties.combinedImageSamplerDescriptorSize,
-      textureDescriptorPtr + (index * descriptor.size) + offset, dld);
-}
-
-vk::DeviceSize GPU::getDescriptorBindingOffset(const Descriptor& descriptor,
-                                               uint32_t binding) const {
-  return device.getDescriptorSetLayoutBindingOffsetEXT(descriptor.layout,
-                                                       binding, dld);
-}
-
-void GPU::destroyDescriptor(const Descriptor& descriptor) const {
-  vmaDestroyBuffer(allocator, descriptor.buffer.buffer,
-                   descriptor.buffer.allocation);
+void GPU::createDescriptorSets() {
 }
 
 Buffer GPU::createBuffer(const void* data,
@@ -1071,12 +791,8 @@ void GPU::destroyShader(const Shader& shader) const {
   device.destroyShaderModule(shader.module);
 }
 
-Pipeline GPU::createPipeline(
-    const Shader& vertexShader,
-    const Shader& fragmentShader,
-    std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts,
-    const uint32_t pushConstantSize) const {
-  assert(pushConstantSize <=
+Pipeline GPU::createPipeline(const PipelineOptions& options) const {
+  assert(options.pushConstantSize <=
          physicalDeviceProperties.properties.limits.maxPushConstantsSize);
 
   Pipeline pipeline{};
@@ -1137,19 +853,17 @@ Pipeline GPU::createPipeline(
       vertexTangentAttributeDescription,
       vertexBitangentAttributeDescription};
 
-  vk::PipelineShaderStageCreateInfo vertexShaderStage =
-      vk::PipelineShaderStageCreateInfo{}
-          .setStage(vk::ShaderStageFlagBits::eVertex)
-          .setModule(vertexShader.module)
-          .setPName("main")
-          .setPSpecializationInfo(nullptr);
+  std::vector<vk::PipelineShaderStageCreateInfo> stages{};
 
-  vk::PipelineShaderStageCreateInfo fragmentShaderStage =
+  for (const Shader& shader : options.shaders) {
+    stages.push_back(
       vk::PipelineShaderStageCreateInfo{}
-          .setStage(vk::ShaderStageFlagBits::eFragment)
-          .setModule(fragmentShader.module)
-          .setPName("main")
-          .setPSpecializationInfo(nullptr);
+            .setStage(shader.stage)
+            .setModule(shader.module)
+            .setPName("main")
+            .setPSpecializationInfo(nullptr)
+    );
+  }
 
   vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
   vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
@@ -1160,15 +874,10 @@ Pipeline GPU::createPipeline(
           .setDepthAttachmentFormat(depthAttachmentFormat)
           .setColorAttachmentFormats(colorAttachmentFormat);
 
-  std::vector<vk::PipelineShaderStageCreateInfo> stages{
-      vertexShaderStage,
-      fragmentShaderStage,
-  };
-
   vk::PushConstantRange pushConstantRange =
       vk::PushConstantRange{}
           .setOffset(0)
-          .setSize(pushConstantSize)
+          .setSize(options.pushConstantSize)
           .setStageFlags(vk::ShaderStageFlagBits::eVertex |
                          vk::ShaderStageFlagBits::eFragment);
 
@@ -1238,6 +947,12 @@ Pipeline GPU::createPipeline(
           .setDynamicStates(dynamicStates)
           .setDynamicStateCount(dynamicStates.size());
 
+  std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
+
+  for (const vk::DescriptorSetLayoutCreateInfo& createInfo : options.descriptorSetLayoutCreateInfos) {
+    descriptorSetLayouts.push_back(device.createDescriptorSetLayout(createInfo));
+  }
+
   vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo =
       vk::PipelineLayoutCreateInfo{}
           .setPushConstantRanges(pushConstantRange)
@@ -1271,16 +986,19 @@ Pipeline GPU::createPipeline(
 
   assert(pipelineResult.result == vk::Result::eSuccess);
 
-  pipeline.vertexShader = vertexShader;
-  pipeline.fragmentShader = fragmentShader;
+  pipeline.shaders = options.shaders;
   pipeline.pipeline = pipelineResult.value;
 
   return pipeline;
 }
 
 void GPU::destroyPipeline(const Pipeline& pipeline) const {
-  destroyShader(pipeline.vertexShader);
-  destroyShader(pipeline.fragmentShader);
+  for (const Shader& shader : pipeline.shaders) {
+    destroyShader(shader);
+  }
+  for (const vk::DescriptorSetLayout& setLayout : pipeline.descriptorSetLayouts) {
+    device.destroyDescriptorSetLayout(setLayout);
+  }
   device.destroyPipelineLayout(pipeline.layout);
   device.destroyPipeline(pipeline.pipeline);
 }
@@ -1584,166 +1302,133 @@ void GPU::submit(const uint32_t imageIndex) {
   }
 }
 
-void GPU::createShadowPipeline() {
-  assert(sizeof(ShadowPassFrameData) <=
-         physicalDeviceProperties.properties.limits.maxPushConstantsSize);
+void GPU::createPipelines() {
 
-  Shader vertexShader = loadShader("./shaders/shadows.vert.glsl.spv",
-                                   vk::ShaderStageFlagBits::eVertex);
-  std::vector<vk::DescriptorSetLayout> setLayouts{uniformLayout};
+  vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo = vk::DescriptorSetAllocateInfo{}
+    .setSetLayouts()
+    .setDescriptorPool(descriptorPool)
+    .setDescriptorSetCount();
 
-  Pipeline pipeline{};
-
-  std::vector<vk::VertexInputBindingDescription> inputBindings{
-      vk::VertexInputBindingDescription{}
-          .setStride(sizeof(Vertex))
-          .setInputRate(vk::VertexInputRate::eVertex)
-          .setBinding(0)};
-
-  vk::VertexInputAttributeDescription vertexPositionAttributeDescription =
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(0)
-          .setOffset(offsetof(Vertex, position))
-          .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
-      vertexPositionAttributeDescription,
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>> mainPassDescriptorSetLayoutBindings{
+    {
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(0)
+        .setStageFlags(vk::ShaderStageFlagBits::eAll)
+        .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+    },
+    {
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(0)
+        .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer),
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+    },
+    {
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(0)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler),
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler),
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(2)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+    },
+    {
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(0)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eUniformBuffer),
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eUniformBuffer),
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(2)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer),
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(3)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+    },
   };
 
-  vk::PipelineShaderStageCreateInfo vertexShaderStage =
-      vk::PipelineShaderStageCreateInfo{}
-          .setStage(vk::ShaderStageFlagBits::eVertex)
-          .setModule(vertexShader.module)
-          .setPName("main")
-          .setPSpecializationInfo(nullptr);
+  std::vector<vk::DescriptorSetLayoutCreateInfo> mainPassDescriptorSets{};
 
-  vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
+  for (const auto& bindings : mainPassDescriptorSetLayoutBindings) {
+    mainPassDescriptorSets.push_back(
+      vk::DescriptorSetLayoutCreateInfo{}
+        .setBindings(bindings)
+        .setBindingCount(bindings.size())
+    );
+  }
 
-  vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
-      vk::PipelineRenderingCreateInfo{}
-          .setColorAttachmentCount(0)
-          .setDepthAttachmentFormat(depthAttachmentFormat);
-
-  std::vector<vk::PipelineShaderStageCreateInfo> stages{vertexShaderStage};
-
-  vk::PushConstantRange pushConstantRange =
-      vk::PushConstantRange{}
-          .setOffset(0)
-          .setSize(sizeof(ShadowPassFrameData))
-          .setStageFlags(vk::ShaderStageFlagBits::eVertex);
-
-  vk::PipelineVertexInputStateCreateInfo vertexInputState =
-      vk::PipelineVertexInputStateCreateInfo{}
-          .setVertexBindingDescriptions(inputBindings)
-          .setVertexBindingDescriptionCount(inputBindings.size())
-          .setVertexAttributeDescriptionCount(inputAttributes.size())
-          .setVertexAttributeDescriptions(inputAttributes);
-
-  vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState =
-      vk::PipelineInputAssemblyStateCreateInfo{}
-          .setTopology(vk::PrimitiveTopology::eTriangleList)
-          .setPrimitiveRestartEnable(0);
-
-  vk::PipelineViewportStateCreateInfo viewportState =
-      vk::PipelineViewportStateCreateInfo{}
-          .setScissors(scissors)
-          .setViewports(viewport)
-          .setViewportCount(1)
-          .setScissorCount(1);
-
-  vk::PipelineRasterizationStateCreateInfo rasterizationState =
-      vk::PipelineRasterizationStateCreateInfo{}
-          .setRasterizerDiscardEnable(0)
-          .setDepthBiasEnable(1)
-          .setDepthBiasConstantFactor(1.25f)
-          .setDepthBiasSlopeFactor(1.75)
-          .setCullMode(vk::CullModeFlagBits::eNone)
-          .setPolygonMode(vk::PolygonMode::eFill)
-          .setFrontFace(vk::FrontFace::eCounterClockwise)
-          .setLineWidth(1.0f);
-
-  vk::PipelineMultisampleStateCreateInfo multisampleState =
-      vk::PipelineMultisampleStateCreateInfo{}
-          .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-          .setSampleShadingEnable(0);
-
-  vk::PipelineDepthStencilStateCreateInfo depthStencilState =
-      vk::PipelineDepthStencilStateCreateInfo{}
-          .setDepthTestEnable(1)
-          .setDepthWriteEnable(1)
-          .setStencilTestEnable(0)
-          .setDepthBoundsTestEnable(0)
-          .setDepthCompareOp(vk::CompareOp::eLessOrEqual);
-
-  std::vector<vk::DynamicState> dynamicStates{vk::DynamicState::eViewport,
-                                              vk::DynamicState::eScissor};
-
-  vk::PipelineDynamicStateCreateInfo dynamicState =
-      vk::PipelineDynamicStateCreateInfo{}
-          .setDynamicStates(dynamicStates)
-          .setDynamicStateCount(dynamicStates.size());
-
-  vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo =
-      vk::PipelineLayoutCreateInfo{}
-          .setPushConstantRanges(pushConstantRange)
-          .setPushConstantRangeCount(1)
-          .setSetLayouts(setLayouts)
-          .setSetLayoutCount(setLayouts.size());
-
-  pipeline.layout =
-      device.createPipelineLayout(pipelineLayoutCreateInfo, nullptr);
-
-  vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo =
-      vk::GraphicsPipelineCreateInfo{}
-          .setPNext(&pipelineRenderingCreateInfo)
-          .setStages(stages)
-          .setStageCount(stages.size())
-          .setPVertexInputState(&vertexInputState)
-          .setPInputAssemblyState(&inputAssemblyState)
-          .setPTessellationState(VK_NULL_HANDLE)
-          .setPViewportState(&viewportState)
-          .setPRasterizationState(&rasterizationState)
-          .setPMultisampleState(&multisampleState)
-          .setPDepthStencilState(&depthStencilState)
-          .setPDynamicState(&dynamicState)
-          .setRenderPass(VK_NULL_HANDLE)
-          .setLayout(pipeline.layout)
-          .setFlags(vk::PipelineCreateFlagBits::eDescriptorBufferEXT);
-
-  vk::ResultValue<vk::Pipeline> pipelineResult =
-      device.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
-
-  assert(pipelineResult.result == vk::Result::eSuccess);
-
-  pipeline.vertexShader = vertexShader;
-  pipeline.pipeline = pipelineResult.value;
-
-  shadowsPipeline = pipeline;
-}
-
-void GPU::createPipelines() {
-  std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{
-      textureLayout,   uniformLayout, lightLayout, uniformLayout,
-      shadowMapLayout, uniformLayout, skyboxLayout};
-
-  entitiesPipeline =
-      createPipeline(loadShader("./shaders/shader.vert.glsl.spv",
+  mainPipeline =
+      createPipeline({{loadShader("./shaders/shader.vert.glsl.spv",
                                 vk::ShaderStageFlagBits::eVertex),
                      loadShader("./shaders/shader.frag.glsl.spv",
-                                vk::ShaderStageFlagBits::eFragment),
-                     descriptorSetLayouts, sizeof(MainPassFrameData));
+                                vk::ShaderStageFlagBits::eFragment)},
+                     mainPassDescriptorSets, sizeof(MainPassFrameData)});
 
-  descriptorSetLayouts = {skyboxLayout, uniformLayout};
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>> skyboxPassDescriptorSetLayoutBindings{
+    {
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(0)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+    },
+  };
+
+  std::vector<vk::DescriptorSetLayoutCreateInfo> skyboxPassDescriptorSets{};
+
+  for (const auto& bindings : skyboxPassDescriptorSetLayoutBindings) {
+    skyboxPassDescriptorSets.push_back(
+      vk::DescriptorSetLayoutCreateInfo{}
+        .setBindings(bindings)
+        .setBindingCount(bindings.size())
+    );
+  }
 
   skyboxPipeline =
-      createPipeline(loadShader("./shaders/cubemap.vert.glsl.spv",
+      createPipeline({{loadShader("./shaders/cubemap.vert.glsl.spv",
                                 vk::ShaderStageFlagBits::eVertex),
                      loadShader("./shaders/cubemap.frag.glsl.spv",
-                                vk::ShaderStageFlagBits::eFragment),
-                     descriptorSetLayouts, sizeof(SkyboxFrameData));
+                                vk::ShaderStageFlagBits::eFragment)},
+                     skyboxPassDescriptorSets, sizeof(SkyboxPassFrameData)});
 
-  createShadowPipeline();
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>> shadowPassDescriptorSetLayoutBindings{
+    {
+      vk::DescriptorSetLayoutBinding{}
+        .setBinding(0)
+        .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+    },
+  };
+
+  std::vector<vk::DescriptorSetLayoutCreateInfo> shadowPassDescriptorSets{};
+
+  for (const auto& bindings : shadowPassDescriptorSetLayoutBindings) {
+    shadowPassDescriptorSets.push_back(
+      vk::DescriptorSetLayoutCreateInfo{}
+        .setBindings(bindings)
+        .setBindingCount(bindings.size())
+    );
+  }
+
+  shadowsPipeline =
+      createPipeline({
+      {loadShader("./shaders/shadows.vert.glsl.spv",
+                                vk::ShaderStageFlagBits::eVertex)},
+        shadowPassDescriptorSets, 
+        sizeof(ShadowPassFrameData)
+  });
 };
 
 void GPU::beginRecordingCommands() const {

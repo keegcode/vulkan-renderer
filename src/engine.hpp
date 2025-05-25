@@ -62,7 +62,6 @@ struct Material {
   uint32_t diffuseTextureIdx = 0;
   uint32_t specularTextureIdx = 0;
   uint32_t heightTextureIdx = 0;
-  Buffer uniform;
   vk::CullModeFlagBits cullMode = vk::CullModeFlagBits::eBack;
   AlphaMode alphaMode = AlphaMode::Opaque;
 };
@@ -86,9 +85,8 @@ struct SpotLight {
   float cutOff;
   glm::vec3 specular;
   float outerCutOff;
-  uint32_t shadowMapX;
-  uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
+  uint32_t shadowMapIdx = 0;
 };
 
 struct PointLight {
@@ -97,10 +95,9 @@ struct PointLight {
   glm::vec3 ambient;
   float linear;
   glm::vec3 diffuse;
-  uint32_t shadowMapX;
   glm::vec3 specular;
-  uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
+  uint32_t shadowMapIdx = 0;
 };
 
 struct DirectionalLight {
@@ -108,9 +105,13 @@ struct DirectionalLight {
   glm::vec3 ambient;
   glm::vec3 diffuse;
   glm::vec3 specular;
-  uint32_t shadowMapX;
-  uint32_t shadowMapY;
   glm::mat4 lightSpaceMatrix;
+  uint32_t shadowMapIdx = 0;
+};
+
+struct Skylight {
+  float intesnity;
+  uint32_t cubemapIdx;
 };
 
 struct Asset {
@@ -190,20 +191,12 @@ class Engine {
   Camera camera;
   Texture skybox;
 
-  Descriptor entitiesDescriptor;
-  Descriptor materialsDescriptor;
-  Descriptor texturesDescriptor;
-  Descriptor lightsDescriptor;
-  Descriptor skyboxDescriptor;
-  Descriptor shadowMapDescriptor;
-  Descriptor transformDescriptor;
-
   bool isRunning = true;
 
   Engine(const Display& display, const GPU& gpu, const EngineConfig& config);
 
   void drawFrame(uint64_t deltaTime);
-  void drawSkybox(const SkyboxFrameData& data);
+  void drawSkybox(const SkyboxPassFrameData& data);
   void processInput(uint64_t deltaTime);
   void destroyTexture(const Texture& texture);
   void destroy();

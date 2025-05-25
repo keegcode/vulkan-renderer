@@ -4,6 +4,8 @@
 #include <glm/ext/matrix_float4x4.hpp>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_handles.hpp>
+#include <vulkan/vulkan_structs.hpp>
 #include "VkBootstrap.h"
 #include "display.hpp"
 #include "vk_mem_alloc.h"
@@ -30,7 +32,7 @@ struct MainPassFrameData {
   uint32_t maxShadowMaps;
 };
 
-struct SkyboxFrameData {
+struct SkyboxPassFrameData {
   glm::mat4 matrix;
 };
 
@@ -50,14 +52,6 @@ struct Buffer {
   vk::DeviceSize size;
 };
 
-struct Descriptor {
-  vk::DescriptorSetLayout layout;
-  vk::DeviceSize size;
-  vk::DescriptorType type;
-  vk::DeviceOrHostAddressConstKHR address;
-  Buffer buffer;
-};
-
 struct Image {
   vk::ImageView view;
   vk::Extent3D extent;
@@ -71,11 +65,18 @@ struct Shader {
   vk::ShaderModule module;
 };
 
+struct PipelineOptions {
+  std::vector<Shader> shaders;
+  std::vector<vk::DescriptorSetLayoutCreateInfo>& descriptorSetLayoutCreateInfos;
+  const uint32_t pushConstantSize;
+};
+
 struct Pipeline {
-  Shader vertexShader;
-  Shader fragmentShader;
   vk::Pipeline pipeline;
   vk::PipelineLayout layout;
+  std::vector<vk::DescriptorSetLayout> descriptorSetLayouts;
+  std::vector<vk::DescriptorSet> descriptorSets;
+  std::vector<Shader> shaders;
 };
 
 struct ImageMemoryBarrierOptions {
@@ -111,8 +112,9 @@ class GPU {
   Display display;
 
   vk::DescriptorPool descriptorPool;
+  std::vector<vk::DescriptorSet> descriptorSets;
 
-  Pipeline entitiesPipeline;
+  Pipeline mainPipeline;
   Pipeline skyboxPipeline;
   Pipeline shadowsPipeline;
 
@@ -147,13 +149,6 @@ class GPU {
   vk::CommandPool commandPool;
   vk::CommandBuffer commandBuffer;
 
-  vk::DescriptorSetLayout uniformLayout;
-  vk::DescriptorSetLayout textureLayout;
-  vk::DescriptorSetLayout lightLayout;
-  vk::DescriptorSetLayout storageBufferLayout;
-  vk::DescriptorSetLayout skyboxLayout;
-  vk::DescriptorSetLayout shadowMapLayout;
-
   Image depthImage;
   Image multisampleImage;
   Image shadowMapAtlas;
@@ -175,32 +170,9 @@ class GPU {
   void createCommandPool();
   void createCommandBuffer();
   void createDescriptorSetLayouts();
+  void createDescriptorSets();
   void createViewportAndScissors();
   void createPipelines();
-
-  Descriptor createStorageBufferDescriptor(
-      const vk::DescriptorSetLayout& layout) const;
-  Descriptor createUniformDescriptor(
-      const uint32_t count,
-      const vk::DescriptorSetLayout& layout) const;
-  Descriptor createTextureDescriptor(
-      const uint32_t count,
-      const vk::DescriptorSetLayout& layout) const;
-  void setDescriptorUniformBuffer(const Descriptor& descriptor,
-                                  const Buffer& src,
-                                  uint32_t index,
-                                  uint32_t binding) const;
-  void setDescriptorStorageBuffer(const Descriptor& descriptor,
-                                  const Buffer& src,
-                                  uint32_t index,
-                                  uint32_t binding) const;
-  void setDescriptorImage(const Descriptor& descriptor,
-                          const Image& src,
-                          const vk::Sampler& sampler,
-                          uint32_t index,
-                          uint32_t binding) const;
-  vk::DeviceSize getDescriptorBindingOffset(const Descriptor& descriptor,
-                                            uint32_t binding) const;
 
   Buffer createBuffer(const vk::DeviceSize size,
                       const vk::Flags<vk::BufferUsageFlagBits> usage) const;
@@ -245,13 +217,7 @@ class GPU {
   Shader loadShader(const std::string_view path,
                     vk::ShaderStageFlagBits stage) const;
 
-  Pipeline createPipeline(
-      const Shader& vertexShader,
-      const Shader& fragmentShader,
-      std::vector<vk::DescriptorSetLayout>& descriptorSetLayouts,
-      const uint32_t pushConstantSize) const;
-
-  void createShadowPipeline();
+  Pipeline createPipeline(const PipelineOptions& options) const;
 
   void waitForFence() const;
   int32_t acquireNextImage() const;
@@ -263,7 +229,6 @@ class GPU {
 
   void destroyPipeline(const Pipeline& pipeline) const;
   void destroyShader(const Shader& shader) const;
-  void destroyDescriptor(const Descriptor& descriptor) const;
   void destroyBuffer(const Buffer& buffer) const;
   void destroyImage(const Image& image) const;
   void destroySampler(const vk::Sampler& sampler) const;
