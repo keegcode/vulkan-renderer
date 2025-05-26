@@ -9,6 +9,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/types.h>
+#include <unordered_map>
 #include <vulkan/vulkan_core.h>
 
 #include <algorithm>
@@ -16,14 +17,12 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtx/norm.hpp>
 #include <glm/matrix.hpp>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 #include <glm/common.hpp>
@@ -42,8 +41,7 @@ Engine::Engine(const Display& d, const GPU& g, const EngineConfig& config)
   loadSkybox();
   loadStatic();
   loadConfig(config);
-  createDescriptors();
-  prepareUniformsAndDescriptors();
+  prepareDescriptors();
 };
 
 void Engine::drawFrame(uint64_t deltaTime) {
@@ -72,35 +70,35 @@ void Engine::drawFrame(uint64_t deltaTime) {
   transform.projection = transform.projection;
 
   vmaCopyMemoryToAllocation(gpu.allocator, &transform,
-                            transform.uniform.allocation, 0,
-                            offsetof(Transform, uniform));
+                            transformUniform.allocation, 0,
+                            sizeof(Transform));
   if (!shadowsGenerated) {
-    gpu.beginShadowPass();
+    gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
 
     ShadowPassFrameData shadowPassFrameData{};
     shadowPassFrameData.model = transform.model;
     shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
-    shadowPassFrameData.shadowMapX = directionalLight.shadowMapX;
-    shadowPassFrameData.shadowMapY = directionalLight.shadowMapY;
 
     drawShadows(shadowPassFrameData);
 
+    gpu.commandBuffer.endRendering();
+
     for (const PointLight& pointLight : pointLights) {
+      gpu.beginShadowPass(shadowMaps[pointLight.shadowMapIdx]);
       shadowPassFrameData.model = transform.model;
       shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
-      shadowPassFrameData.shadowMapX = pointLight.shadowMapX;
-      shadowPassFrameData.shadowMapY = pointLight.shadowMapY;
 
       drawShadows(shadowPassFrameData);
+      gpu.commandBuffer.endRendering();
     }
 
     for (const SpotLight& spotLight : spotLights) {
+      gpu.beginShadowPass(shadowMaps[spotLight.shadowMapIdx]);
       shadowPassFrameData.model = transform.model;
       shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
-      shadowPassFrameData.shadowMapX = spotLight.shadowMapX;
-      shadowPassFrameData.shadowMapY = spotLight.shadowMapY;
 
       drawShadows(shadowPassFrameData);
+      gpu.commandBuffer.endRendering();
     }
 
     gpu.commandBuffer.endRendering();
@@ -114,7 +112,6 @@ void Engine::drawFrame(uint64_t deltaTime) {
   mainPassFrameData.spotLights = static_cast<uint32_t>(spotLights.size());
   mainPassFrameData.pointLights = static_cast<uint32_t>(pointLights.size());
   mainPassFrameData.cameraPos = camera.position;
-  mainPassFrameData.maxShadowMaps = gpu.shadowAtlasSize / gpu.shadowSize;
 
   drawEntities(mainPassFrameData);
 
@@ -135,6 +132,16 @@ void Engine::drawSkybox(const SkyboxPassFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.skyboxPipeline.pipeline);
 
+  gpu.commandBuffer.bindDescriptorSets(
+    vk::PipelineBindPoint::eGraphics,
+    gpu.skyboxPipeline.layout,
+    0,
+    gpu.skyboxPipeline.descriptorSets.size(),
+    gpu.skyboxPipeline.descriptorSets.data(),
+    0,
+    nullptr
+  );
+
   gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
   gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
 
@@ -145,31 +152,15 @@ void Engine::drawSkybox(const SkyboxPassFrameData& frameData) {
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
       sizeof(SkyboxPassFrameData), &frameData);
 
-  std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
-                    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(skyboxDescriptor.address.deviceAddress),
-
-  };
-
   std::array<vk::DeviceSize, 1> offsets{0};
-  std::vector<vk::DeviceSize> descriptorOffsets{0};
-  std::vector<uint32_t> descriptorIndices{0};
 
   Mesh& mesh = meshes[0];
-
-  gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
 
   gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer,
                                       offsets.data());
 
   gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
                                     vk::IndexType::eUint32);
-
-  gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-      vk::PipelineBindPoint::eGraphics, gpu.skyboxPipeline.layout, 0, 1,
-      descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
 
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
@@ -251,15 +242,11 @@ void Engine::destroyTexture(const Texture& texture) {
 void Engine::destroy() {
   gpu.device.waitIdle();
 
-  gpu.destroyDescriptor(lightsDescriptor);
-  gpu.destroyDescriptor(materialsDescriptor);
-  gpu.destroyDescriptor(entitiesDescriptor);
-  gpu.destroyDescriptor(texturesDescriptor);
-  gpu.destroyDescriptor(skyboxDescriptor);
-  gpu.destroyDescriptor(shadowMapDescriptor);
-  gpu.destroyDescriptor(transformDescriptor);
-
   for (Texture& texture : textures) {
+    destroyTexture(texture);
+  }
+
+  for (Texture& texture : shadowMaps) {
     destroyTexture(texture);
   }
 
@@ -270,16 +257,9 @@ void Engine::destroy() {
     gpu.destroyBuffer(mesh.indexBuffer);
   }
 
-  for (Material& m : materials) {
-    gpu.destroyBuffer(m.uniform);
-  }
-
-  for (Entity& e : entities) {
-    gpu.destroyBuffer(e.uniform);
-  }
-
-  gpu.destroyBuffer(transform.uniform);
+  gpu.destroyBuffer(transformUniform);
   gpu.destroyBuffer(directionalLightUniform);
+  gpu.destroyBuffer(skylightUniform);
 
   if (spotLights.size()) {
 	  gpu.destroyBuffer(spotLightsBuffer);
@@ -287,6 +267,14 @@ void Engine::destroy() {
 
   if (pointLights.size()) {
 	  gpu.destroyBuffer(pointLightsBuffer);
+  }
+
+  if (entities.size()) {
+	  gpu.destroyBuffer(entitiesBuffer);
+  }
+
+  if (materials.size()) {
+	  gpu.destroyBuffer(materialsBuffer);
   }
 
   gpu.destroySwapchainResources();
@@ -317,6 +305,7 @@ Image Engine::loadImage(const std::filesystem::path& path, vk::Format format) {
 void Engine::loadConfig(const EngineConfig& config) {
   transform = config.transform;
   directionalLight = config.directionalLight;
+  skylight = config.skylight;
 
   pointLights = config.pointLights;
   spotLights = config.spotLights;
@@ -372,8 +361,6 @@ void Engine::loadStatic() {
 
   textures.push_back(texture);
   textures.push_back(normal);
-  textures.push_back(
-      Texture{gpu.shadowMapAtlas, TextureType::Shadow, shadowMapSampler});
 
   Material defaultMaterial{};
   defaultMaterial.emissive = glm::vec3{0.0f};
@@ -676,45 +663,46 @@ Image Engine::loadCubemap(const std::string& type) {
   return cubemap;
 }
 
-void Engine::createDescriptors() {
-}
-
-void Engine::prepareUniformsAndDescriptors() {
-  transform.uniform =
-      gpu.createBuffer(&transform, offsetof(Transform, uniform),
+void Engine::prepareDescriptors() {
+  transformUniform =
+      gpu.createBuffer(&transform, sizeof(Transform),
                        vk::BufferUsageFlagBits::eUniformBuffer |
                            vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-  gpu.setDescriptorUniformBuffer(transformDescriptor, transform.uniform, 0, 0);
-
-  uint32_t shadowMapX = 0;
-  uint32_t shadowMapY = 0;
-  uint32_t maxShadowMaps = ((gpu.shadowAtlasSize / gpu.shadowSize) - 1);
-
-  directionalLight.shadowMapX = 0;
-  directionalLight.shadowMapY = 0;
 
   directionalLightUniform =
       gpu.createBuffer(&directionalLight, sizeof(DirectionalLight),
                        vk::BufferUsageFlagBits::eUniformBuffer |
                            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  gpu.setDescriptorUniformBuffer(lightsDescriptor, directionalLightUniform, 0,
-                                 0);
+  skylightUniform =
+      gpu.createBuffer(&directionalLight, sizeof(Skylight),
+                       vk::BufferUsageFlagBits::eUniformBuffer |
+                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-  for (uint32_t i = 0; i < pointLights.size(); i++) {
-    if (shadowMapX == maxShadowMaps) {
-      shadowMapX = 0;
-      shadowMapY += 1;
-    } else {
-      shadowMapX += 1;
-    }
+  gpu.setUniformDescriptorSet(transformUniform, gpu.mainPipeline.descriptorSets[0], 0);
 
-    assert(shadowMapY <= maxShadowMaps);
+  gpu.setUniformDescriptorSet(skylightUniform, gpu.mainPipeline.descriptorSets[3], 0);
+  gpu.setUniformDescriptorSet(directionalLightUniform, gpu.mainPipeline.descriptorSets[3], 1);
 
-    PointLight& light = pointLights[i];
-    light.shadowMapX = shadowMapX;
-    light.shadowMapY = shadowMapY;
+  directionalLight.shadowMapIdx = shadowMaps.size();
+  
+  Texture shadowMap{};
+  shadowMap.type = TextureType::Shadow;
+  shadowMap.sampler = shadowMapSampler;
+  shadowMap.image = gpu.createShadowMap();
+
+  shadowMaps.push_back(shadowMap);
+
+  for (PointLight& light : pointLights) {
+    light.shadowMapIdx = shadowMaps.size();
+    shadowMap.image = gpu.createShadowMap();
+    shadowMaps.push_back(shadowMap);
+  }
+
+  for (SpotLight& light : spotLights) {
+    light.shadowMapIdx = shadowMaps.size();
+    shadowMap.image = gpu.createShadowMap();
+    shadowMaps.push_back(shadowMap);
   }
 
   if (pointLights.size()) {
@@ -723,22 +711,7 @@ void Engine::prepareUniformsAndDescriptors() {
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    gpu.setDescriptorStorageBuffer(lightsDescriptor, pointLightsBuffer, 0, 1);
-  }
-
-  for (uint32_t i = 0; i < spotLights.size(); i++) {
-    if (shadowMapX == maxShadowMaps) {
-      shadowMapX = 0;
-      shadowMapY += 1;
-    } else {
-      shadowMapX += 1;
-    }
-
-    assert(shadowMapY <= maxShadowMaps);
-
-    SpotLight& light = spotLights[i];
-    light.shadowMapX = shadowMapX;
-    light.shadowMapY = shadowMapY;
+    gpu.setStorageBufferDescriptorSet(pointLightsBuffer, gpu.mainPipeline.descriptorSets[3], 2);
   }
 
   if (spotLights.size()) {
@@ -747,46 +720,33 @@ void Engine::prepareUniformsAndDescriptors() {
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    gpu.setDescriptorStorageBuffer(lightsDescriptor, spotLightsBuffer, 0, 2);
+    gpu.setStorageBufferDescriptorSet(spotLightsBuffer, gpu.mainPipeline.descriptorSets[3], 3);
   }
 
-  for (uint32_t i = 0; i < entities.size(); i++) {
-    Entity& entity = entities[i];
-    entity.uniform =
-        gpu.createBuffer(&entity, sizeof(glm::mat4),
-                         vk::BufferUsageFlagBits::eUniformBuffer |
-                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
+  if (entities.size()) {
+    entitiesBuffer = gpu.createBuffer(
+        entities.data(), sizeof(Entity) * entities.size(),
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    gpu.setDescriptorUniformBuffer(entitiesDescriptor, entity.uniform, i, 0);
+    gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.mainPipeline.descriptorSets[1], 0);
   }
 
-  for (uint32_t i = 0; i < materials.size(); i++) {
-    Material& material = materials[i];
+  if (materials.size()) {
+    materialsBuffer = gpu.createBuffer(
+        materials.data(), sizeof(Material) * materials.size(),
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress);
 
-    material.uniform =
-        gpu.createBuffer(&material, offsetof(Material, uniform),
-                         vk::BufferUsageFlagBits::eUniformBuffer |
-                             vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-    gpu.setDescriptorUniformBuffer(materialsDescriptor, material.uniform, i, 0);
-
-    Texture& diffuseMap = textures[material.diffuseTextureIdx];
-    Texture& specularMap = textures[material.specularTextureIdx];
-    Texture& normalMap = textures[material.normalTextureIdx];
-    Texture& heightMap = textures[material.heightTextureIdx];
-
-    gpu.setDescriptorImage(texturesDescriptor, diffuseMap.image,
-                           diffuseMap.sampler, i, 0);
-
-    gpu.setDescriptorImage(texturesDescriptor, specularMap.image,
-                           specularMap.sampler, i, 1);
-
-    gpu.setDescriptorImage(texturesDescriptor, normalMap.image,
-                           specularMap.sampler, i, 2);
-
-    gpu.setDescriptorImage(texturesDescriptor, heightMap.image,
-                           heightMap.sampler, i, 3);
+    gpu.setStorageBufferDescriptorSet(materialsBuffer, gpu.mainPipeline.descriptorSets[1], 1);
   }
+  
+  if (textures.size()) {
+    gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
+  }
+
+  gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
+  gpu.setTextureArrayDescriptorSet(std::vector{skybox}, gpu.mainPipeline.descriptorSets[2], 2);
 }
 
 void Engine::loadSkybox() {
@@ -818,6 +778,16 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.shadowsPipeline.pipeline);
 
+  gpu.commandBuffer.bindDescriptorSets(
+    vk::PipelineBindPoint::eGraphics,
+    gpu.shadowsPipeline.layout,
+    0,
+    gpu.shadowsPipeline.descriptorSets.size(),
+    gpu.shadowsPipeline.descriptorSets.data(),
+    0,
+    nullptr
+  );
+
   std::vector<vk::DeviceSize> offsets = {0};
 
   vk::Extent2D extent =
@@ -828,27 +798,29 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                               .setHeight(static_cast<float>(extent.height))
                               .setMaxDepth(1.0)
                               .setMinDepth(0.0)
-                              .setX(frameData.shadowMapX * gpu.shadowSize)
-                              .setY(frameData.shadowMapY * gpu.shadowSize);
+                              .setX(0.0)
+                              .setY(0.0);
 
   vk::Rect2D scissors =
       vk::Rect2D{}
-          .setOffset(vk::Offset2D{}
-                         .setX(frameData.shadowMapX * gpu.shadowSize)
-                         .setY(frameData.shadowMapY * gpu.shadowSize))
+          .setOffset(vk::Offset2D{}.setX(0).setY(0))
           .setExtent(
               vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
 
   gpu.commandBuffer.setViewport(0, 1, &viewport);
   gpu.commandBuffer.setScissor(0, 1, &scissors);
 
-  gpu.commandBuffer.pushConstants(gpu.shadowsPipeline.layout,
-                                  vk::ShaderStageFlagBits::eVertex, 0,
-                                  sizeof(ShadowPassFrameData), &frameData);
+  ShadowPassFrameData data = frameData;
 
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
     Asset& asset = assets[entity.assetIdx];
+
+    data.entityId = i;
+    gpu.commandBuffer.pushConstants(gpu.shadowsPipeline.layout,
+                                    vk::ShaderStageFlagBits::eVertex, 0,
+                                    sizeof(ShadowPassFrameData), &data);
+
     for (const uint32_t meshIdx : asset.meshes) {
       drawEntityShadow(i, meshIdx);
     }
@@ -859,55 +831,43 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.mainPipeline.pipeline);
 
+  gpu.commandBuffer.bindDescriptorSets(
+    vk::PipelineBindPoint::eGraphics,
+    gpu.mainPipeline.layout,
+    0,
+    gpu.mainPipeline.descriptorSets.size(),
+    gpu.mainPipeline.descriptorSets.data(),
+    0,
+    nullptr
+  );
+
   std::vector<vk::DeviceSize> offsets = {0};
 
   gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
   gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
   gpu.commandBuffer.setDepthWriteEnable(1);
 
-  gpu.commandBuffer.pushConstants(
-      gpu.mainPipeline.layout,
-      vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-      sizeof(MainPassFrameData), &frameData);
-
-  std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT |
-                    vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(texturesDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(materialsDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(lightsDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(entitiesDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                    vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
-          .setAddress(shadowMapDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(transformDescriptor.address.deviceAddress),
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT |
-                    vk::BufferUsageFlagBits::eSamplerDescriptorBufferEXT)
-          .setAddress(skyboxDescriptor.address.deviceAddress),
-  };
-
-  gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
-
   std::vector<std::array<uint32_t, 3>> transparent{};
   std::vector<std::array<uint32_t, 2>> opaque{};
+
+  MainPassFrameData data = frameData;
 
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
     Asset& asset = assets[entity.assetIdx];
+    
+    data.entityId = i;
+
     for (const uint32_t meshIdx : asset.meshes) {
       Mesh& mesh = meshes[meshIdx];
       Material& material = materials[mesh.materialIdx];
+
+      data.materialId = mesh.materialIdx;
+
+      gpu.commandBuffer.pushConstants(
+        gpu.mainPipeline.layout,
+        vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
+        sizeof(MainPassFrameData), &data);
 
       if (material.alphaMode != AlphaMode::Opaque) {
         float distance =
@@ -1048,24 +1008,9 @@ void Engine::drawEntityShadow(const uint32_t entityIdx,
   vk::DeviceSize offsets[1] = {0};
   Mesh& mesh = meshes[meshIdx];
 
-  std::vector<vk::DescriptorBufferBindingInfoEXT> sceneBidningInfo{
-      vk::DescriptorBufferBindingInfoEXT{}
-          .setUsage(vk::BufferUsageFlagBits::eResourceDescriptorBufferEXT)
-          .setAddress(entitiesDescriptor.address.deviceAddress)};
-
-  gpu.commandBuffer.bindDescriptorBuffersEXT(sceneBidningInfo, gpu.dld);
-
-  std::vector<uint32_t> descriptorIndices{0};
-  std::vector<vk::DeviceSize> descriptorOffsets{entitiesDescriptor.size *
-                                                entityIdx};
-
   gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
   gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
                                     vk::IndexType::eUint32);
-
-  gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-      vk::PipelineBindPoint::eGraphics, gpu.shadowsPipeline.layout, 0, 1,
-      descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
 
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
@@ -1079,25 +1024,8 @@ void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
   gpu.commandBuffer.setCullMode(material.cullMode);
 
   gpu.commandBuffer.bindVertexBuffers(0, 1, &mesh.vertexBuffer.buffer, offsets);
-
   gpu.commandBuffer.bindIndexBuffer(mesh.indexBuffer.buffer, 0,
                                     vk::IndexType::eUint32);
-
-  std::vector<uint32_t> descriptorIndices{0, 1, 2, 3, 4, 5, 6};
-
-  std::vector<vk::DeviceSize> descriptorOffsets{
-      texturesDescriptor.size * mesh.materialIdx,
-      materialsDescriptor.size * mesh.materialIdx,
-      0,
-      entitiesDescriptor.size * entityIdx,
-      0,
-      0,
-      0};
-
-  gpu.commandBuffer.setDescriptorBufferOffsetsEXT(
-      vk::PipelineBindPoint::eGraphics, gpu.mainPipeline.layout, 0, 7,
-      descriptorIndices.data(), descriptorOffsets.data(), gpu.dld);
-
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
 

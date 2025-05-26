@@ -32,7 +32,8 @@ layout(scalar, set = 0, binding = 0) uniform Transform {
 transform;
 
 struct Entity {
-    mat4 matrix;
+  mat4 matrix;
+  uint assetIdx;
 };
 
 layout(scalar, set = 1, binding = 0) readonly buffer Entities {

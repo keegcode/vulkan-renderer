@@ -21,15 +21,15 @@ void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
 struct ShadowPassFrameData {
   glm::mat4 lightSpaceMatrix;
   glm::mat4 model;
-  uint32_t shadowMapX;
-  uint32_t shadowMapY;
+  uint32_t entityId;
 };
 
 struct MainPassFrameData {
   glm::vec3 cameraPos;
   uint32_t pointLights;
   uint32_t spotLights;
-  uint32_t maxShadowMaps;
+  uint32_t entityId;
+  uint32_t materialId;
 };
 
 struct SkyboxPassFrameData {
@@ -58,6 +58,16 @@ struct Image {
   VmaAllocation allocation;
   uint32_t mipLevels;
   vk::Image image;
+  vk::ImageLayout layout = vk::ImageLayout::eUndefined;
+};
+
+enum class TextureType { BaseColor, Specular, Cube, Normal, Height, Shadow };
+
+struct Texture {
+  Image image;
+  TextureType type;
+  vk::Sampler sampler;
+  std::string path;
 };
 
 struct Shader {
@@ -105,10 +115,6 @@ class GPU {
   static_assert((shadowSize & (shadowSize - 1)) == 0,
                 "Shadow size should be 2^n");
 
-  static const uint32_t shadowAtlasSize = 2048;
-  static_assert((shadowAtlasSize & (shadowAtlasSize - 1)) == 0,
-                "Atlas size should be 2^n");
-
   Display display;
 
   vk::DescriptorPool descriptorPool;
@@ -151,7 +157,6 @@ class GPU {
 
   Image depthImage;
   Image multisampleImage;
-  Image shadowMapAtlas;
 
   vk::Viewport viewport;
   vk::Rect2D scissors;
@@ -198,8 +203,8 @@ class GPU {
       const vk::CommandBuffer& singleSubmitBuffer) const;
 
   Image createDepthImage(const DepthImageOptions& options) const;
+  Image createShadowMap() const;
 
-  void createShadowMapAtlas();
   Image createTexture2D(const uint8_t* data,
                         const vk::Extent2D& extent,
                         const vk::Format format = vk::Format::eR8G8B8A8Srgb);
@@ -217,6 +222,28 @@ class GPU {
   Shader loadShader(const std::string_view path,
                     vk::ShaderStageFlagBits stage) const;
 
+  vk::WriteDescriptorSet setUniformDescriptorSet(
+    const Buffer& src,
+    const vk::DescriptorSet& set,
+    const uint32_t binding
+  );
+  vk::WriteDescriptorSet setTextureArrayDescriptorSet(
+    const std::vector<Texture>& textures,
+    const vk::DescriptorSet& set,
+    const uint32_t binding
+  );
+  vk::WriteDescriptorSet setTextureDescriptorSet(
+    const Texture& texture,
+    const vk::DescriptorSet& set,
+    const uint32_t binding
+  );
+  vk::WriteDescriptorSet setStorageBufferDescriptorSet(
+    const Buffer& src,
+    const vk::DescriptorSet& set,
+    const uint32_t binding
+  );
+  void updateDescriptors(const std::vector<vk::WriteDescriptorSet>& writes);
+
   Pipeline createPipeline(const PipelineOptions& options) const;
 
   void waitForFence() const;
@@ -224,7 +251,7 @@ class GPU {
   void resetFence() const;
   void beginRecordingCommands() const;
   void beginMainPass(const uint32_t imageIndex);
-  void beginShadowPass() const;
+  void beginShadowPass(const Texture& texture) const;
   void submit(const uint32_t imageIndex);
 
   void destroyPipeline(const Pipeline& pipeline) const;

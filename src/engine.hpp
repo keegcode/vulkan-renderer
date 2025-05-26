@@ -21,7 +21,6 @@ struct Transform {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 projection;
-  Buffer uniform;
 };
 
 enum class CameraMode { Fixed, Move };
@@ -66,15 +65,6 @@ struct Material {
   AlphaMode alphaMode = AlphaMode::Opaque;
 };
 
-enum class TextureType { BaseColor, Specular, Cube, Normal, Height, Shadow };
-
-struct Texture {
-  Image image;
-  TextureType type;
-  vk::Sampler sampler;
-  std::string path;
-};
-
 struct SpotLight {
   glm::vec3 direction;
   float constant;
@@ -110,8 +100,8 @@ struct DirectionalLight {
 };
 
 struct Skylight {
-  float intesnity;
-  uint32_t cubemapIdx;
+  float intesnity = 1.0f;
+  uint32_t cubemapIdx = 0;
 };
 
 struct Asset {
@@ -122,10 +112,10 @@ struct Asset {
 struct Entity {
   glm::mat4 matrix = glm::mat4{1.0f};
   uint32_t assetIdx = 0;
-  Buffer uniform;
 };
 
 struct EngineConfig {
+  Skylight skylight;
   Transform transform;
   DirectionalLight directionalLight;
   std::vector<PointLight> pointLights;
@@ -175,18 +165,24 @@ class Engine {
   std::vector<Entity> entities;
   std::vector<Material> materials;
   std::vector<Texture> textures;
+  std::vector<Texture> shadowMaps;
   std::vector<Asset> assets;
   std::vector<Mesh> meshes;
 
   vk::Sampler shadowMapSampler;
 
   DirectionalLight directionalLight;
+  Skylight skylight;
   std::vector<PointLight> pointLights;
   std::vector<SpotLight> spotLights;
-
+  
+  Buffer transformUniform;
   Buffer directionalLightUniform;
+  Buffer skylightUniform;
   Buffer pointLightsBuffer;
   Buffer spotLightsBuffer;
+  Buffer materialsBuffer;
+  Buffer entitiesBuffer;
 
   Camera camera;
   Texture skybox;
@@ -232,8 +228,7 @@ class Engine {
 
   Texture createShadowMap();
 
-  void createDescriptors();
-  void prepareUniformsAndDescriptors();
+  void prepareDescriptors();
   void loadSkybox();
   void drawShadows(const ShadowPassFrameData& frameData);
   void drawEntities(const MainPassFrameData& frameData);
