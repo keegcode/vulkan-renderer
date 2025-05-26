@@ -1496,6 +1496,7 @@ void GPU::createPipelines() {
     {
       vk::DescriptorSetLayoutBinding{}
         .setBinding(0)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eVertex)
         .setDescriptorType(vk::DescriptorType::eStorageBuffer)
     },

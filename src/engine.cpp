@@ -731,6 +731,8 @@ void Engine::prepareDescriptors() {
   gpu.setStorageBufferDescriptorSet(spotLightsBuffer, gpu.mainPipeline.descriptorSets[3], 3);
 
   gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.mainPipeline.descriptorSets[1], 0);
+  gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.shadowsPipeline.descriptorSets[0], 0);
+
   gpu.setStorageBufferDescriptorSet(materialsBuffer, gpu.mainPipeline.descriptorSets[1], 1);
 
   gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
