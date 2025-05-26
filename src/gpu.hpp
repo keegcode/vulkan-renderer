@@ -58,7 +58,6 @@ struct Image {
   VmaAllocation allocation;
   uint32_t mipLevels;
   vk::Image image;
-  vk::ImageLayout layout = vk::ImageLayout::eUndefined;
 };
 
 enum class TextureType { BaseColor, Specular, Cube, Normal, Height, Shadow };
@@ -79,6 +78,7 @@ struct PipelineOptions {
   std::vector<Shader> shaders;
   std::vector<vk::DescriptorSetLayoutCreateInfo>& descriptorSetLayoutCreateInfos;
   const uint32_t pushConstantSize;
+  const uint32_t colorAttachmentCount;
 };
 
 struct Pipeline {
@@ -132,7 +132,6 @@ class GPU {
   vk::SurfaceKHR surface;
   vkb::PhysicalDevice physicalDevice;
   vk::PhysicalDeviceProperties2 physicalDeviceProperties;
-  vk::PhysicalDeviceDescriptorBufferPropertiesEXT descriptorBufferProperties;
   vk::SurfaceCapabilitiesKHR capabilities;
   vkb::Device vkbDevice;
   vk::Device device;
@@ -222,27 +221,27 @@ class GPU {
   Shader loadShader(const std::string_view path,
                     vk::ShaderStageFlagBits stage) const;
 
-  vk::WriteDescriptorSet setUniformDescriptorSet(
+  void setUniformDescriptorSet(
     const Buffer& src,
     const vk::DescriptorSet& set,
     const uint32_t binding
   );
-  vk::WriteDescriptorSet setTextureArrayDescriptorSet(
+  void setTextureArrayDescriptorSet(
     const std::vector<Texture>& textures,
     const vk::DescriptorSet& set,
     const uint32_t binding
   );
-  vk::WriteDescriptorSet setTextureDescriptorSet(
+  void setTextureDescriptorSet(
     const Texture& texture,
     const vk::DescriptorSet& set,
     const uint32_t binding
   );
-  vk::WriteDescriptorSet setStorageBufferDescriptorSet(
+  void setStorageBufferDescriptorSet(
     const Buffer& src,
     const vk::DescriptorSet& set,
     const uint32_t binding
   );
-  void updateDescriptors(const std::vector<vk::WriteDescriptorSet>& writes);
+  void updateDescriptor(const vk::WriteDescriptorSet& write);
 
   Pipeline createPipeline(const PipelineOptions& options) const;
 

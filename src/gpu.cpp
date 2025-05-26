@@ -40,14 +40,15 @@ void GPU::createInstance() {
   dld.init(instance.instance, instance.fp_vkGetInstanceProcAddr);
 };
 
-vk::WriteDescriptorSet GPU::setUniformDescriptorSet(
+void GPU::setUniformDescriptorSet(
   const Buffer& src,
   const vk::DescriptorSet& set,
   const uint32_t binding
 ) {
   vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo{}
+    .setBuffer(src.buffer)
     .setRange(src.size)
-    .setBuffer(src.buffer);
+    .setOffset(0);
 
   vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
     .setDstSet(set)
@@ -56,10 +57,10 @@ vk::WriteDescriptorSet GPU::setUniformDescriptorSet(
     .setDescriptorCount(1)
     .setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
-  return write;
+  updateDescriptor(write);
 }
 
-vk::WriteDescriptorSet GPU::setTextureArrayDescriptorSet(
+void GPU::setTextureArrayDescriptorSet(
   const std::vector<Texture>& textures,
   const vk::DescriptorSet& set,
   const uint32_t binding
@@ -69,7 +70,7 @@ vk::WriteDescriptorSet GPU::setTextureArrayDescriptorSet(
   for (const Texture& texture : textures) {
     imageInfos.push_back(
       vk::DescriptorImageInfo{}
-        .setImageLayout(texture.image.layout)
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
         .setImageView(texture.image.view)
         .setSampler(texture.sampler)
     );
@@ -82,10 +83,10 @@ vk::WriteDescriptorSet GPU::setTextureArrayDescriptorSet(
     .setDescriptorCount(imageInfos.size())
     .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
-  return write;
+  updateDescriptor(write);
 }
 
-vk::WriteDescriptorSet GPU::setTextureDescriptorSet(
+void GPU::setTextureDescriptorSet(
   const Texture& texture,
   const vk::DescriptorSet& set,
   const uint32_t binding
@@ -93,7 +94,7 @@ vk::WriteDescriptorSet GPU::setTextureDescriptorSet(
   vk::DescriptorImageInfo imageInfo = vk::DescriptorImageInfo{}
     .setSampler(texture.sampler)
     .setImageView(texture.image.view)
-    .setImageLayout(texture.image.layout);
+    .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
   vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
     .setDstSet(set)
@@ -102,16 +103,17 @@ vk::WriteDescriptorSet GPU::setTextureDescriptorSet(
     .setDescriptorCount(1)
     .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
-  return write;
+  updateDescriptor(write);
 }
 
-vk::WriteDescriptorSet GPU::setStorageBufferDescriptorSet(
+void GPU::setStorageBufferDescriptorSet(
   const Buffer& src,
   const vk::DescriptorSet& set,
   const uint32_t binding
 ) {
   vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo{}
     .setRange(src.size)
+    .setOffset(0)
     .setBuffer(src.buffer);
 
   vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
@@ -120,12 +122,12 @@ vk::WriteDescriptorSet GPU::setStorageBufferDescriptorSet(
     .setBufferInfo(bufferInfo)
     .setDescriptorCount(1)
     .setDescriptorType(vk::DescriptorType::eStorageBuffer);
-
-  return write;
+  
+  updateDescriptor(write);
 }
 
-void GPU::updateDescriptors(const std::vector<vk::WriteDescriptorSet>& writes) {
-  device.updateDescriptorSets(writes.size(), writes.data(), 0, nullptr);
+void GPU::updateDescriptor(const vk::WriteDescriptorSet& write) {
+  device.updateDescriptorSets(1, &write, 0, nullptr);
 }
 
 void GPU::destroy() const {
@@ -153,7 +155,7 @@ void GPU::pickPhysicalDevice() {
   surface = display.createVulkanSurface(instance.instance);
 
   std::vector<const char*> extensions = {
-      vk::EXTDescriptorBufferExtensionName,
+      vk::EXTDescriptorIndexingExtensionName,
       vk::EXTExtendedDynamicState3ExtensionName,
       vk::EXTScalarBlockLayoutExtensionName};
 
@@ -192,7 +194,6 @@ void GPU::pickPhysicalDevice() {
   VKB_ASSERT(physicalDeviceResult);
 
   physicalDevice = physicalDeviceResult.value();
-  physicalDeviceProperties.pNext = &descriptorBufferProperties;
 
   vk::PhysicalDevice pd = vk::PhysicalDevice{physicalDevice};
 
@@ -345,8 +346,7 @@ Buffer GPU::createBuffer(const void* data,
                           &buffer.allocationInfo));
 
   buffer.buffer = b;
-  assert(
-      !vmaCopyMemoryToAllocation(allocator, data, buffer.allocation, 0, size));
+  assert(!vmaCopyMemoryToAllocation(allocator, data, buffer.allocation, 0, size));
 
   return buffer;
 }
@@ -490,7 +490,6 @@ void GPU::endSingleSubmitCommand(
 
 Image GPU::createDepthImage(const DepthImageOptions& options) const {
   Image image{};
-  image.layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
   image.extent = vk::Extent3D{options.extent}.setDepth(1);
 
   VkImageCreateInfo imageCreateInfo =
@@ -616,7 +615,6 @@ Image GPU::createTexture2D(const uint8_t* data,
   destroyBuffer(stagingBuffer);
 
   image.view = device.createImageView(imageViewCreateInfo, nullptr);
-  image.layout = options.newLayout;
 
   return image;
 }
@@ -700,8 +698,6 @@ Image GPU::createCubemapTexture(const std::array<uint8_t*, 6>& data,
   transitionCmd = beginSingleSubmitCommand();
   addImageMemoryBarrier(transitionCmd, options);
   endSingleSubmitCommand(transitionCmd);
-
-  image.layout = options.newLayout;
 
   destroyBuffer(stagingBuffer);
 
@@ -946,6 +942,7 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
       vertexBitangentAttributeDescription};
 
   std::vector<vk::PipelineShaderStageCreateInfo> stages{};
+  vk::Flags<vk::ShaderStageFlagBits> stageFlagBits = options.shaders[0].stage;
 
   for (const Shader& shader : options.shaders) {
     stages.push_back(
@@ -955,6 +952,8 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
             .setPName("main")
             .setPSpecializationInfo(nullptr)
     );
+
+    stageFlagBits = stageFlagBits | shader.stage;
   }
 
   vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
@@ -962,16 +961,20 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
       vk::PipelineRenderingCreateInfo{}
-          .setColorAttachmentCount(1)
           .setDepthAttachmentFormat(depthAttachmentFormat)
-          .setColorAttachmentFormats(colorAttachmentFormat);
+          .setColorAttachmentCount(0);
+
+  if (options.colorAttachmentCount) {
+    pipelineRenderingCreateInfo 
+      .setColorAttachmentCount(options.colorAttachmentCount)
+      .setColorAttachmentFormats(colorAttachmentFormat);
+  }
 
   vk::PushConstantRange pushConstantRange =
       vk::PushConstantRange{}
           .setOffset(0)
           .setSize(options.pushConstantSize)
-          .setStageFlags(vk::ShaderStageFlagBits::eVertex |
-                         vk::ShaderStageFlagBits::eFragment);
+          .setStageFlags(stageFlagBits);
 
   vk::PipelineVertexInputStateCreateInfo vertexInputState =
       vk::PipelineVertexInputStateCreateInfo{}
@@ -1079,8 +1082,7 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
           .setPColorBlendState(&colorBlendState)
           .setPDynamicState(&dynamicState)
           .setRenderPass(VK_NULL_HANDLE)
-          .setLayout(pipeline.layout)
-          .setFlags(vk::PipelineCreateFlagBits::eDescriptorBufferEXT);
+          .setLayout(pipeline.layout);
 
   vk::ResultValue<vk::Pipeline> pipelineResult =
       device.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
@@ -1178,6 +1180,7 @@ void GPU::beginShadowPass(const Texture& shadowMap) const {
 
   vk::RenderingInfo renderingInfo =
       vk::RenderingInfo{}
+          .setColorAttachmentCount(0)
           .setRenderArea(vk::Rect2D{}.setExtent(
               vk::Extent2D{shadowSize, shadowSize}))
           .setLayerCount(1)
@@ -1411,16 +1414,19 @@ void GPU::createPipelines() {
     {
       vk::DescriptorSetLayoutBinding{}
         .setBinding(0)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eAll)
         .setDescriptorType(vk::DescriptorType::eUniformBuffer)
     },
     {
       vk::DescriptorSetLayoutBinding{}
         .setBinding(0)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eVertex)
         .setDescriptorType(vk::DescriptorType::eStorageBuffer),
       vk::DescriptorSetLayoutBinding{}
         .setBinding(1)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eStorageBuffer)
     },
@@ -1428,31 +1434,38 @@ void GPU::createPipelines() {
       vk::DescriptorSetLayoutBinding{}
         .setBinding(0)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler),
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(100),
       vk::DescriptorSetLayoutBinding{}
         .setBinding(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler),
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(100),
       vk::DescriptorSetLayoutBinding{}
         .setBinding(2)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(100),
     },
     {
       vk::DescriptorSetLayoutBinding{}
         .setBinding(0)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eUniformBuffer),
       vk::DescriptorSetLayoutBinding{}
         .setBinding(1)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eUniformBuffer),
       vk::DescriptorSetLayoutBinding{}
         .setBinding(2)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eStorageBuffer),
       vk::DescriptorSetLayoutBinding{}
         .setBinding(3)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eStorageBuffer)
     },
@@ -1506,22 +1519,23 @@ void GPU::createPipelines() {
                                 vk::ShaderStageFlagBits::eVertex),
                      loadShader("./shaders/shader.frag.glsl.spv",
                                 vk::ShaderStageFlagBits::eFragment)},
-                     mainPassDescriptorSets, sizeof(MainPassFrameData)});
+                     mainPassDescriptorSets, sizeof(MainPassFrameData), 1});
 
 
   skyboxPipeline =
-      createPipeline({{loadShader("./shaders/cubemap.vert.glsl.spv",
+      createPipeline({{loadShader("./shaders/skybox.vert.glsl.spv",
                                 vk::ShaderStageFlagBits::eVertex),
-                     loadShader("./shaders/cubemap.frag.glsl.spv",
+                     loadShader("./shaders/skybox.frag.glsl.spv",
                                 vk::ShaderStageFlagBits::eFragment)},
-                     skyboxDescriptorSets, sizeof(SkyboxPassFrameData)});
+                     skyboxDescriptorSets, sizeof(SkyboxPassFrameData), 1});
 
   shadowsPipeline =
       createPipeline({
       {loadShader("./shaders/shadows.vert.glsl.spv",
                                 vk::ShaderStageFlagBits::eVertex)},
         shadowDescriptorSets, 
-        sizeof(ShadowPassFrameData)
+        sizeof(ShadowPassFrameData),
+      0
   });
 };
 

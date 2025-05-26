@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <assimp/Importer.hpp>
 #include <cassert>
-#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <glm/ext/matrix_clip_space.hpp>
@@ -100,8 +99,6 @@ void Engine::drawFrame(uint64_t deltaTime) {
       drawShadows(shadowPassFrameData);
       gpu.commandBuffer.endRendering();
     }
-
-    gpu.commandBuffer.endRendering();
 
     shadowsGenerated = true;
   }
@@ -247,8 +244,10 @@ void Engine::destroy() {
   }
 
   for (Texture& texture : shadowMaps) {
-    destroyTexture(texture);
+    gpu.destroyImage(texture.image);
   }
+
+  gpu.destroySampler(shadowMapSampler);
 
   destroyTexture(skybox);
 
@@ -260,22 +259,10 @@ void Engine::destroy() {
   gpu.destroyBuffer(transformUniform);
   gpu.destroyBuffer(directionalLightUniform);
   gpu.destroyBuffer(skylightUniform);
-
-  if (spotLights.size()) {
-	  gpu.destroyBuffer(spotLightsBuffer);
-  }
-
-  if (pointLights.size()) {
-	  gpu.destroyBuffer(pointLightsBuffer);
-  }
-
-  if (entities.size()) {
-	  gpu.destroyBuffer(entitiesBuffer);
-  }
-
-  if (materials.size()) {
-	  gpu.destroyBuffer(materialsBuffer);
-  }
+  gpu.destroyBuffer(spotLightsBuffer);
+  gpu.destroyBuffer(pointLightsBuffer);
+  gpu.destroyBuffer(entitiesBuffer);
+  gpu.destroyBuffer(materialsBuffer);
 
   gpu.destroySwapchainResources();
 
@@ -666,23 +653,15 @@ Image Engine::loadCubemap(const std::string& type) {
 void Engine::prepareDescriptors() {
   transformUniform =
       gpu.createBuffer(&transform, sizeof(Transform),
-                       vk::BufferUsageFlagBits::eUniformBuffer |
-                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
+                       vk::BufferUsageFlagBits::eUniformBuffer);
 
   directionalLightUniform =
       gpu.createBuffer(&directionalLight, sizeof(DirectionalLight),
-                       vk::BufferUsageFlagBits::eUniformBuffer |
-                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
+                       vk::BufferUsageFlagBits::eUniformBuffer);
 
   skylightUniform =
-      gpu.createBuffer(&directionalLight, sizeof(Skylight),
-                       vk::BufferUsageFlagBits::eUniformBuffer |
-                           vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-  gpu.setUniformDescriptorSet(transformUniform, gpu.mainPipeline.descriptorSets[0], 0);
-
-  gpu.setUniformDescriptorSet(skylightUniform, gpu.mainPipeline.descriptorSets[3], 0);
-  gpu.setUniformDescriptorSet(directionalLightUniform, gpu.mainPipeline.descriptorSets[3], 1);
+      gpu.createBuffer(&skylight, sizeof(Skylight),
+                       vk::BufferUsageFlagBits::eUniformBuffer);
 
   directionalLight.shadowMapIdx = shadowMaps.size();
   
@@ -708,44 +687,58 @@ void Engine::prepareDescriptors() {
   if (pointLights.size()) {
     pointLightsBuffer = gpu.createBuffer(
         pointLights.data(), sizeof(PointLight) * pointLights.size(),
-        vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-    gpu.setStorageBufferDescriptorSet(pointLightsBuffer, gpu.mainPipeline.descriptorSets[3], 2);
+        vk::BufferUsageFlagBits::eStorageBuffer);
+  } else {
+    pointLightsBuffer = gpu.createBuffer(
+        sizeof(PointLight),
+        vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
   if (spotLights.size()) {
     spotLightsBuffer = gpu.createBuffer(
         spotLights.data(), sizeof(SpotLight) * spotLights.size(),
-        vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-    gpu.setStorageBufferDescriptorSet(spotLightsBuffer, gpu.mainPipeline.descriptorSets[3], 3);
+        vk::BufferUsageFlagBits::eStorageBuffer);
+  } else {
+    spotLightsBuffer = gpu.createBuffer(
+        sizeof(SpotLight) * 1,
+        vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
   if (entities.size()) {
     entitiesBuffer = gpu.createBuffer(
         entities.data(), sizeof(Entity) * entities.size(),
-        vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-    gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.mainPipeline.descriptorSets[1], 0);
+        vk::BufferUsageFlagBits::eStorageBuffer);
+  } else {
+    entitiesBuffer = gpu.createBuffer(
+        sizeof(Entity),
+        vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
   if (materials.size()) {
     materialsBuffer = gpu.createBuffer(
         materials.data(), sizeof(Material) * materials.size(),
-        vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress);
+        vk::BufferUsageFlagBits::eStorageBuffer);
+  } else {
+    materialsBuffer = gpu.createBuffer(sizeof(Material),
+        vk::BufferUsageFlagBits::eStorageBuffer);
+  }
 
-    gpu.setStorageBufferDescriptorSet(materialsBuffer, gpu.mainPipeline.descriptorSets[1], 1);
-  }
-  
-  if (textures.size()) {
-    gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
-  }
+  gpu.setUniformDescriptorSet(transformUniform, gpu.mainPipeline.descriptorSets[0], 0);
+  gpu.setUniformDescriptorSet(skylightUniform, gpu.mainPipeline.descriptorSets[3], 0);
+  gpu.setUniformDescriptorSet(directionalLightUniform, gpu.mainPipeline.descriptorSets[3], 1);
+
+  gpu.setStorageBufferDescriptorSet(pointLightsBuffer, gpu.mainPipeline.descriptorSets[3], 2);
+  gpu.setStorageBufferDescriptorSet(spotLightsBuffer, gpu.mainPipeline.descriptorSets[3], 3);
+
+  gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.mainPipeline.descriptorSets[1], 0);
+  gpu.setStorageBufferDescriptorSet(materialsBuffer, gpu.mainPipeline.descriptorSets[1], 1);
 
   gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
+
+  if (shadowMaps.size()) {
+    gpu.setTextureArrayDescriptorSet(shadowMaps, gpu.mainPipeline.descriptorSets[2], 1);
+  }
+
   gpu.setTextureArrayDescriptorSet(std::vector{skybox}, gpu.mainPipeline.descriptorSets[2], 2);
 }
 
@@ -809,6 +802,11 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
 
   gpu.commandBuffer.setViewport(0, 1, &viewport);
   gpu.commandBuffer.setScissor(0, 1, &scissors);
+  gpu.commandBuffer.setCullMode(vk::CullModeFlagBits::eNone);
+  gpu.commandBuffer.setDepthWriteEnable(1);
+
+  vk::Bool32 enables[1] = {false};
+  gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
 
   ShadowPassFrameData data = frameData;
 
