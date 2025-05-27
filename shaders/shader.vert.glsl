@@ -45,7 +45,8 @@ void main() {
   vec4 pos = (entity.matrix * transform.model * vec4(inPosition, 1.0));
 
   vec3 normal = vec3(entity.matrix * transform.model * vec4(inNormal, 0.0));
-  vec3 tangent = vec3(entity.matrix * transform.model * vec4(vec3(inTangent), 0.0));
+  vec3 tangent =
+      vec3(entity.matrix * transform.model * vec4(vec3(inTangent), 0.0));
 
   outTexCoord = inTexCoord;
   outColor = inColor;

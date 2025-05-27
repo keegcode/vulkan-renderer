@@ -9,8 +9,8 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/types.h>
-#include <unordered_map>
 #include <vulkan/vulkan_core.h>
+#include <unordered_map>
 
 #include <algorithm>
 #include <assimp/Importer.hpp>
@@ -69,17 +69,16 @@ void Engine::drawFrame(uint64_t deltaTime) {
   transform.projection = transform.projection;
 
   vmaCopyMemoryToAllocation(gpu.allocator, &transform,
-                            transformUniform.allocation, 0,
-                            sizeof(Transform));
+                            transformUniform.allocation, 0, sizeof(Transform));
   if (!shadowsGenerated) {
-	ShadowPassFrameData shadowPassFrameData{};
-	shadowPassFrameData.model = transform.model;
-	shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
+    ShadowPassFrameData shadowPassFrameData{};
+    shadowPassFrameData.model = transform.model;
+    shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
 
     if (directionalLight.shadows) {
-		gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
-		drawShadows(shadowPassFrameData);
-		gpu.commandBuffer.endRendering();
+      gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
+      drawShadows(shadowPassFrameData);
+      gpu.commandBuffer.endRendering();
     }
 
     for (const PointLight& pointLight : pointLights) {
@@ -102,7 +101,6 @@ void Engine::drawFrame(uint64_t deltaTime) {
       gpu.beginShadowPass(shadowMaps[spotLight.shadowMapIdx]);
       shadowPassFrameData.model = transform.model;
       shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
-
       drawShadows(shadowPassFrameData);
       gpu.commandBuffer.endRendering();
     }
@@ -137,14 +135,9 @@ void Engine::drawSkybox(const SkyboxPassFrameData& frameData) {
                                  gpu.skyboxPipeline.pipeline);
 
   gpu.commandBuffer.bindDescriptorSets(
-    vk::PipelineBindPoint::eGraphics,
-    gpu.skyboxPipeline.layout,
-    0,
-    gpu.skyboxPipeline.descriptorSets.size(),
-    gpu.skyboxPipeline.descriptorSets.data(),
-    0,
-    nullptr
-  );
+      vk::PipelineBindPoint::eGraphics, gpu.skyboxPipeline.layout, 0,
+      gpu.skyboxPipeline.descriptorSets.size(),
+      gpu.skyboxPipeline.descriptorSets.data(), 0, nullptr);
 
   gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
   gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
@@ -457,8 +450,7 @@ void Engine::loadMesh(Asset& asset,
                           assimpMesh->mBitangents[j].z};
 
       if (glm::dot(glm::cross(glm::vec3{vertex.tangent}, vertex.normal),
-                   bitangent) <
-          0.0f) {
+                   bitangent) < 0.0f) {
         vertex.tangent[3] = -1.0f;
       }
     }
@@ -665,45 +657,41 @@ Image Engine::loadCubemap(const std::string& type) {
 }
 
 void Engine::prepareDescriptors() {
-
   Texture shadowMap{};
   shadowMap.sampler = shadowMapSampler;
   shadowMap.type = TextureType::Shadow;
 
   if (directionalLight.shadows) {
-	  directionalLight.shadowMapIdx = shadowMaps.size();
-	  shadowMap.image = gpu.createShadowMap();
-	  shadowMaps.push_back(shadowMap);
+    directionalLight.shadowMapIdx = shadowMaps.size();
+    shadowMap.image = gpu.createShadowMap();
+    shadowMaps.push_back(shadowMap);
   }
 
   for (PointLight& light : pointLights) {
     if (light.shadows) {
-		light.shadowMapIdx = shadowMaps.size();
-		shadowMap.image = gpu.createShadowMap();
-		shadowMaps.push_back(shadowMap);
+      light.shadowMapIdx = shadowMaps.size();
+      shadowMap.image = gpu.createShadowMap();
+      shadowMaps.push_back(shadowMap);
     }
   }
 
   for (SpotLight& light : spotLights) {
     if (light.shadows) {
-		light.shadowMapIdx = shadowMaps.size();
-		shadowMap.image = gpu.createShadowMap();
-		shadowMaps.push_back(shadowMap);
+      light.shadowMapIdx = shadowMaps.size();
+      shadowMap.image = gpu.createShadowMap();
+      shadowMaps.push_back(shadowMap);
     }
   }
 
-  transformUniform =
-      gpu.createBuffer(&transform, sizeof(Transform),
-                       vk::BufferUsageFlagBits::eUniformBuffer);
+  transformUniform = gpu.createBuffer(&transform, sizeof(Transform),
+                                      vk::BufferUsageFlagBits::eUniformBuffer);
 
   directionalLightUniform =
       gpu.createBuffer(&directionalLight, sizeof(DirectionalLight),
                        vk::BufferUsageFlagBits::eUniformBuffer);
 
-  skylightUniform =
-      gpu.createBuffer(&skylight, sizeof(Skylight),
-                       vk::BufferUsageFlagBits::eUniformBuffer);
-
+  skylightUniform = gpu.createBuffer(&skylight, sizeof(Skylight),
+                                     vk::BufferUsageFlagBits::eUniformBuffer);
 
   if (pointLights.size()) {
     pointLightsBuffer = gpu.createBuffer(
@@ -711,8 +699,7 @@ void Engine::prepareDescriptors() {
         vk::BufferUsageFlagBits::eStorageBuffer);
   } else {
     pointLightsBuffer = gpu.createBuffer(
-        sizeof(PointLight),
-        vk::BufferUsageFlagBits::eStorageBuffer);
+        sizeof(PointLight), vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
   if (spotLights.size()) {
@@ -721,48 +708,57 @@ void Engine::prepareDescriptors() {
         vk::BufferUsageFlagBits::eStorageBuffer);
   } else {
     spotLightsBuffer = gpu.createBuffer(
-        sizeof(SpotLight) * 1,
-        vk::BufferUsageFlagBits::eStorageBuffer);
+        sizeof(SpotLight) * 1, vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
   if (entities.size()) {
-    entitiesBuffer = gpu.createBuffer(
-        entities.data(), sizeof(Entity) * entities.size(),
-        vk::BufferUsageFlagBits::eStorageBuffer);
+    entitiesBuffer =
+        gpu.createBuffer(entities.data(), sizeof(Entity) * entities.size(),
+                         vk::BufferUsageFlagBits::eStorageBuffer);
   } else {
-    entitiesBuffer = gpu.createBuffer(
-        sizeof(Entity),
-        vk::BufferUsageFlagBits::eStorageBuffer);
+    entitiesBuffer = gpu.createBuffer(sizeof(Entity),
+                                      vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
   if (materials.size()) {
-    materialsBuffer = gpu.createBuffer(
-        materials.data(), sizeof(Material) * materials.size(),
-        vk::BufferUsageFlagBits::eStorageBuffer);
+    materialsBuffer =
+        gpu.createBuffer(materials.data(), sizeof(Material) * materials.size(),
+                         vk::BufferUsageFlagBits::eStorageBuffer);
   } else {
     materialsBuffer = gpu.createBuffer(sizeof(Material),
-        vk::BufferUsageFlagBits::eStorageBuffer);
+                                       vk::BufferUsageFlagBits::eStorageBuffer);
   }
 
-  gpu.setUniformDescriptorSet(transformUniform, gpu.mainPipeline.descriptorSets[0], 0);
-  gpu.setUniformDescriptorSet(skylightUniform, gpu.mainPipeline.descriptorSets[3], 0);
-  gpu.setUniformDescriptorSet(directionalLightUniform, gpu.mainPipeline.descriptorSets[3], 1);
+  gpu.setUniformDescriptorSet(transformUniform,
+                              gpu.mainPipeline.descriptorSets[0], 0);
+  gpu.setUniformDescriptorSet(skylightUniform,
+                              gpu.mainPipeline.descriptorSets[3], 0);
+  gpu.setUniformDescriptorSet(directionalLightUniform,
+                              gpu.mainPipeline.descriptorSets[3], 1);
 
-  gpu.setStorageBufferDescriptorSet(pointLightsBuffer, gpu.mainPipeline.descriptorSets[3], 2);
-  gpu.setStorageBufferDescriptorSet(spotLightsBuffer, gpu.mainPipeline.descriptorSets[3], 3);
+  gpu.setStorageBufferDescriptorSet(pointLightsBuffer,
+                                    gpu.mainPipeline.descriptorSets[3], 2);
+  gpu.setStorageBufferDescriptorSet(spotLightsBuffer,
+                                    gpu.mainPipeline.descriptorSets[3], 3);
 
-  gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.mainPipeline.descriptorSets[1], 0);
-  gpu.setStorageBufferDescriptorSet(entitiesBuffer, gpu.shadowsPipeline.descriptorSets[0], 0);
+  gpu.setStorageBufferDescriptorSet(entitiesBuffer,
+                                    gpu.mainPipeline.descriptorSets[1], 0);
+  gpu.setStorageBufferDescriptorSet(entitiesBuffer,
+                                    gpu.shadowsPipeline.descriptorSets[0], 0);
 
-  gpu.setStorageBufferDescriptorSet(materialsBuffer, gpu.mainPipeline.descriptorSets[1], 1);
+  gpu.setStorageBufferDescriptorSet(materialsBuffer,
+                                    gpu.mainPipeline.descriptorSets[1], 1);
 
-  gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
+  gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2],
+                                   0);
 
   if (shadowMaps.size()) {
-	  gpu.setTextureArrayDescriptorSet(shadowMaps, gpu.mainPipeline.descriptorSets[2], 1);
+    gpu.setTextureArrayDescriptorSet(shadowMaps,
+                                     gpu.mainPipeline.descriptorSets[2], 1);
   }
 
-  gpu.setTextureArrayDescriptorSet(std::vector{skybox}, gpu.mainPipeline.descriptorSets[2], 2);
+  gpu.setTextureArrayDescriptorSet(std::vector{skybox},
+                                   gpu.mainPipeline.descriptorSets[2], 2);
   gpu.setTextureDescriptorSet(skybox, gpu.skyboxPipeline.descriptorSets[0], 0);
 }
 
@@ -796,14 +792,9 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                                  gpu.shadowsPipeline.pipeline);
 
   gpu.commandBuffer.bindDescriptorSets(
-    vk::PipelineBindPoint::eGraphics,
-    gpu.shadowsPipeline.layout,
-    0,
-    gpu.shadowsPipeline.descriptorSets.size(),
-    gpu.shadowsPipeline.descriptorSets.data(),
-    0,
-    nullptr
-  );
+      vk::PipelineBindPoint::eGraphics, gpu.shadowsPipeline.layout, 0,
+      gpu.shadowsPipeline.descriptorSets.size(),
+      gpu.shadowsPipeline.descriptorSets.data(), 0, nullptr);
 
   std::vector<vk::DeviceSize> offsets = {0};
 
@@ -818,11 +809,8 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                               .setX(0.0)
                               .setY(0.0);
 
-  vk::Rect2D scissors =
-      vk::Rect2D{}
-          .setOffset(vk::Offset2D{}.setX(0).setY(0))
-          .setExtent(
-              vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
+  vk::Rect2D scissors = vk::Rect2D{}.setExtent(
+      vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
 
   gpu.commandBuffer.setViewport(0, 1, &viewport);
   gpu.commandBuffer.setScissor(0, 1, &scissors);
@@ -854,14 +842,9 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
                                  gpu.mainPipeline.pipeline);
 
   gpu.commandBuffer.bindDescriptorSets(
-    vk::PipelineBindPoint::eGraphics,
-    gpu.mainPipeline.layout,
-    0,
-    gpu.mainPipeline.descriptorSets.size(),
-    gpu.mainPipeline.descriptorSets.data(),
-    0,
-    nullptr
-  );
+      vk::PipelineBindPoint::eGraphics, gpu.mainPipeline.layout, 0,
+      gpu.mainPipeline.descriptorSets.size(),
+      gpu.mainPipeline.descriptorSets.data(), 0, nullptr);
 
   std::vector<vk::DeviceSize> offsets = {0};
 
@@ -900,10 +883,10 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
     data.entityId = entityIdx;
     data.materialId = meshes[meshIdx].materialIdx;
 
-	gpu.commandBuffer.pushConstants(
-		gpu.mainPipeline.layout,
-		vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-		sizeof(MainPassFrameData), &data);
+    gpu.commandBuffer.pushConstants(
+        gpu.mainPipeline.layout,
+        vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+        0, sizeof(MainPassFrameData), &data);
 
     drawEntity(meshIdx);
   }
@@ -919,10 +902,10 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
     data.entityId = entityIdx;
     data.materialId = meshes[meshIdx].materialIdx;
 
-	gpu.commandBuffer.pushConstants(
-		gpu.mainPipeline.layout,
-		vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-		sizeof(MainPassFrameData), &data);
+    gpu.commandBuffer.pushConstants(
+        gpu.mainPipeline.layout,
+        vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+        0, sizeof(MainPassFrameData), &data);
 
     drawEntity(meshIdx);
   }
@@ -1062,22 +1045,22 @@ std::pair<Texture, AssimpSampler> Engine::loadTexture(
     const aiTextureType textureType) {
   Texture texture{};
 
-  switch (textureType) { 
-	  case aiTextureType_DIFFUSE:
-		  texture.type = TextureType::BaseColor;
-            break;
-	  case aiTextureType_SPECULAR:
-		  texture.type = TextureType::Specular;
-            break;
-	  case aiTextureType_NORMALS:
-		  texture.type = TextureType::Normal;
-            break;
-	  case aiTextureType_HEIGHT:
-		  texture.type = TextureType::Height;
-            break;
-	  default:
-		  texture.type = TextureType::BaseColor;
-		  break;
+  switch (textureType) {
+    case aiTextureType_DIFFUSE:
+      texture.type = TextureType::BaseColor;
+      break;
+    case aiTextureType_SPECULAR:
+      texture.type = TextureType::Specular;
+      break;
+    case aiTextureType_NORMALS:
+      texture.type = TextureType::Normal;
+      break;
+    case aiTextureType_HEIGHT:
+      texture.type = TextureType::Height;
+      break;
+    default:
+      texture.type = TextureType::BaseColor;
+      break;
   }
 
   aiString texturePath;

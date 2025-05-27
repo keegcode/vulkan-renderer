@@ -43,8 +43,9 @@ struct Material {
 };
 
 layout(scalar, set = 1, binding = 1) readonly buffer Materials {
-    Material data[];
-} materials;
+  Material data[];
+}
+materials;
 
 layout(set = 2, binding = 0) uniform sampler2D textures[];
 layout(set = 2, binding = 1) uniform sampler2DShadow shadowMaps[];
@@ -53,7 +54,8 @@ layout(set = 2, binding = 2) uniform samplerCube cubemaps[];
 layout(scalar, set = 3, binding = 0) uniform Skylight {
   float intensity;
   uint cubemapTextureIdx;
-} skylight;
+}
+skylight;
 
 layout(scalar, set = 3, binding = 1) uniform DirectionalLight {
   vec3 direction;
@@ -120,16 +122,28 @@ vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 viewDir) {
 
   float diff = max(dot(lightDir, normal), 0.0);
   vec3 diffuse =
-      directionalLight.diffuse * diff * vec3(texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord));
+      directionalLight.diffuse * diff *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].diffuseTextureIdx],
+          inTexCoord));
 
-  float spec = pow(max(dot(normal, halfDir), 0.0), materials.data[frameData.materialId].shininess);
+  float spec = pow(max(dot(normal, halfDir), 0.0),
+                   materials.data[frameData.materialId].shininess);
   vec3 specular =
-      directionalLight.specular * spec * vec3(texture(textures[materials.data[frameData.materialId].specularTextureIdx], inTexCoord));
+      directionalLight.specular * spec *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].specularTextureIdx],
+          inTexCoord));
 
   vec3 ambient =
-      directionalLight.ambient * vec3(texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord));
+      directionalLight.ambient *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].diffuseTextureIdx],
+          inTexCoord));
 
-  float shadow = calcShadow(directionalLight.lightSpaceMatrix * inPos, directionalLight.shadowMapIdx, directionalLight.shadows);
+  float shadow =
+      calcShadow(directionalLight.lightSpaceMatrix * inPos,
+                 directionalLight.shadowMapIdx, directionalLight.shadows);
 
   return (ambient + ((diffuse + specular) * shadow));
 }
@@ -139,17 +153,27 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   vec3 lightDir = normalize(lightPos - fragPos);
 
   float diff = max(dot(lightDir, normal), 0.0);
-  vec3 diffuse = pointLights.data[idx].diffuse * diff *
-                 vec3(texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord));
+  vec3 diffuse =
+      pointLights.data[idx].diffuse * diff *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].diffuseTextureIdx],
+          inTexCoord));
 
   vec3 halfDir = normalize(vec3(lightDir + viewDir));
 
-  float spec = pow(max(dot(normal, halfDir), 0.0), materials.data[frameData.materialId].shininess);
-  vec3 specular = pointLights.data[idx].specular * spec *
-                  vec3(texture(textures[materials.data[frameData.materialId].specularTextureIdx], inTexCoord));
+  float spec = pow(max(dot(normal, halfDir), 0.0),
+                   materials.data[frameData.materialId].shininess);
+  vec3 specular =
+      pointLights.data[idx].specular * spec *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].specularTextureIdx],
+          inTexCoord));
 
   vec3 ambient =
-      pointLights.data[idx].ambient * vec3(texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord));
+      pointLights.data[idx].ambient *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].diffuseTextureIdx],
+          inTexCoord));
 
   float distance = length(lightDir);
 
@@ -160,7 +184,9 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(pointLights.data[idx].lightSpaceMatrix * inPos, pointLights.data[idx].shadowMapIdx, pointLights.data[idx].shadows);
+  float shadow = calcShadow(pointLights.data[idx].lightSpaceMatrix * inPos,
+                            pointLights.data[idx].shadowMapIdx,
+                            pointLights.data[idx].shadows);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -174,7 +200,10 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
 
   float theta = dot(fragLightDir, -lightDir);
   vec3 ambient =
-      spotLights.data[idx].ambient * vec3(texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord));
+      spotLights.data[idx].ambient *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].diffuseTextureIdx],
+          inTexCoord));
 
   if (theta < spotLights.data[idx].outerCutOff) {
     return ambient;
@@ -186,14 +215,21 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
       clamp((theta - spotLights.data[idx].outerCutOff) / epsilon, 0.0, 1.0);
 
   float diff = max(dot(fragLightDir, normal), 0.0);
-  vec3 diffuse = spotLights.data[idx].diffuse * diff *
-                 vec3(texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord));
+  vec3 diffuse =
+      spotLights.data[idx].diffuse * diff *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].diffuseTextureIdx],
+          inTexCoord));
 
   vec3 halfDir = normalize(fragLightDir + viewDir);
 
-  float spec = pow(max(dot(normal, halfDir), 0.0), materials.data[frameData.materialId].shininess);
-  vec3 specular = spotLights.data[idx].specular * spec *
-                  vec3(texture(textures[materials.data[frameData.materialId].specularTextureIdx], inTexCoord));
+  float spec = pow(max(dot(normal, halfDir), 0.0),
+                   materials.data[frameData.materialId].shininess);
+  vec3 specular =
+      spotLights.data[idx].specular * spec *
+      vec3(texture(
+          textures[materials.data[frameData.materialId].specularTextureIdx],
+          inTexCoord));
 
   float distance = length(lightVector);
   float attenuation = 1.0 / (spotLights.data[idx].constant +
@@ -206,7 +242,9 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 viewDir) {
   diffuse *= attenuation;
   specular *= attenuation;
 
-  float shadow = calcShadow(spotLights.data[idx].lightSpaceMatrix * inPos, spotLights.data[idx].shadowMapIdx, spotLights.data[idx].shadows);
+  float shadow = calcShadow(spotLights.data[idx].lightSpaceMatrix * inPos,
+                            spotLights.data[idx].shadowMapIdx,
+                            spotLights.data[idx].shadows);
 
   return (ambient + ((specular + diffuse) * shadow));
 }
@@ -219,7 +257,8 @@ float linearizeDepth(float depth) {
 
 vec3 calcSkyboxReflection(vec3 viewDir, vec3 normal, vec3 color) {
   vec3 r = refract(-viewDir, normal, 0.66);
-  return mix(color, texture(cubemaps[skylight.cubemapTextureIdx], r).rgb, (1.0 - materials.data[frameData.materialId].roughness));
+  return mix(color, texture(cubemaps[skylight.cubemapTextureIdx], r).rgb,
+             (1.0 - materials.data[frameData.materialId].roughness));
 }
 
 void main() {
@@ -231,10 +270,12 @@ void main() {
     vec3 tangent = normalize(inTangent.xyz);
     tangent = (tangent - dot(tangent, normal) * normal) * inTangent.w;
     vec3 bitangent = cross(normal, tangent);
-    mat3 TBN =
-        mat3(tangent, bitangent, normal);
+    mat3 TBN = mat3(tangent, bitangent, normal);
 
-    normal = texture(textures[materials.data[frameData.materialId].normalTextureIdx], inTexCoord).rgb;
+    normal =
+        texture(textures[materials.data[frameData.materialId].normalTextureIdx],
+                inTexCoord)
+            .rgb;
     normal = normal * 2.0 - 1.0;
     normal = normalize(TBN * normal);
   }
@@ -250,8 +291,10 @@ void main() {
     shadow += calcSpotLight(i, normal, fragPos, viewDir);
   }
 
-  vec4 color = texture(textures[materials.data[frameData.materialId].diffuseTextureIdx], inTexCoord);
-  
+  vec4 color =
+      texture(textures[materials.data[frameData.materialId].diffuseTextureIdx],
+              inTexCoord);
+
   if (color.a < materials.data[frameData.materialId].alphaCutoff) {
     discard;
   }
@@ -262,7 +305,8 @@ void main() {
   vec4 fog = vec4(c, c, c, 1.0);
 
   color.xyz = calcSkyboxReflection(viewDir, normal, color.xyz);
-  color = inColor * vec4(materials.data[frameData.materialId].color, 1.0) * color * vec4(shadow, 1.0);
-  
+  color = inColor * vec4(materials.data[frameData.materialId].color, 1.0) *
+          color * vec4(shadow, 1.0);
+
   outColor = mix(color, fog, c * 0.03);
 }

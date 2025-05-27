@@ -36,11 +36,12 @@ int32_t main() {
   config.assets.push_back(
       "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
 
+  config.directionalLight.shadows = true;
   config.directionalLight.direction =
       glm::normalize(glm::vec3{0.0f, -150.0f, 0.0f});
-  config.directionalLight.ambient = glm::vec3{0.01f};
-  config.directionalLight.diffuse = glm::vec3{0.01f};
-  config.directionalLight.specular = glm::vec3{0.01f};
+  config.directionalLight.ambient = glm::vec3{0.05f};
+  config.directionalLight.diffuse = glm::vec3{0.4f};
+  config.directionalLight.specular = glm::vec3{0.4f};
 
   config.directionalLight.lightSpaceMatrix =
       glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 10.0f, 400.0f);
@@ -61,23 +62,24 @@ int32_t main() {
   pointLight.lightSpaceMatrix[1][1] *= -1;
   pointLight.lightSpaceMatrix *= glm::lookAt(
       pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  config.pointLights.push_back(pointLight);
+  // config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
-  spotLight.position = glm::vec3{0.0f, 100.0f, 5.0f};
-  spotLight.direction = glm::vec3{0.0f, -1.0f, 0.0f};
+  spotLight.position = glm::vec3{0.0f, 10.0f, 150.0f};
+  spotLight.direction = glm::vec3{0.0f, 0.0f, -1.0f};
   spotLight.cutOff = glm::cos(glm::radians(10.0f));
   spotLight.outerCutOff = glm::cos(glm::radians(30.0f));
   spotLight.ambient = glm::vec3{0.01f};
   spotLight.diffuse = glm::vec3{0.6f};
   spotLight.specular = glm::vec3{0.6f};
   spotLight.constant = 1.0f;
-  spotLight.linear = 0.01f;
+  spotLight.linear = 0.001f;
+  spotLight.shadows = true;
   spotLight.lightSpaceMatrix =
       glm::perspective(glm::radians(80.0f), 1.0f, 1.0f, 500.0f);
   spotLight.lightSpaceMatrix[1][1] *= -1;
-  spotLight.lightSpaceMatrix *= glm::lookAt(
-      spotLight.position, spotLight.direction, glm::vec3{0.0f, 1.0f, 0.0f});
+  spotLight.lightSpaceMatrix *= glm::lookAt(spotLight.position, glm::vec3{0.0},
+                                            glm::vec3{0.0f, 1.0f, 0.0f});
   config.spotLights.push_back(spotLight);
 
   Entity sponza{};

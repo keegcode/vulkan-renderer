@@ -30,8 +30,8 @@ void GPU::createInstance() {
           .set_app_name("VkRenderer")
           .require_api_version(1, 3)
           .enable_extensions(display.vulkanExtensions)
-          //.enable_validation_layers(true)
-          //.use_default_debug_messenger()
+          .enable_validation_layers(true)
+          .use_default_debug_messenger()
           .build();
 
   VKB_ASSERT(instanceResult);
@@ -40,89 +40,84 @@ void GPU::createInstance() {
   dld.init(instance.instance, instance.fp_vkGetInstanceProcAddr);
 };
 
-void GPU::setUniformDescriptorSet(
-  const Buffer& src,
-  const vk::DescriptorSet& set,
-  const uint32_t binding
-) {
+void GPU::setUniformDescriptorSet(const Buffer& src,
+                                  const vk::DescriptorSet& set,
+                                  const uint32_t binding) {
   vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo{}
-    .setBuffer(src.buffer)
-    .setRange(src.size)
-    .setOffset(0);
+                                            .setBuffer(src.buffer)
+                                            .setRange(src.size)
+                                            .setOffset(0);
 
-  vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
-    .setDstSet(set)
-    .setDstBinding(binding)
-    .setBufferInfo(bufferInfo)
-    .setDescriptorCount(1)
-    .setDescriptorType(vk::DescriptorType::eUniformBuffer);
+  vk::WriteDescriptorSet write =
+      vk::WriteDescriptorSet{}
+          .setDstSet(set)
+          .setDstBinding(binding)
+          .setBufferInfo(bufferInfo)
+          .setDescriptorCount(1)
+          .setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
   updateDescriptor(write);
 }
 
-void GPU::setTextureArrayDescriptorSet(
-  const std::vector<Texture>& textures,
-  const vk::DescriptorSet& set,
-  const uint32_t binding
-) {
+void GPU::setTextureArrayDescriptorSet(const std::vector<Texture>& textures,
+                                       const vk::DescriptorSet& set,
+                                       const uint32_t binding) {
   std::vector<vk::DescriptorImageInfo> imageInfos{};
 
   for (const Texture& texture : textures) {
     imageInfos.push_back(
-      vk::DescriptorImageInfo{}
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setImageView(texture.image.view)
-        .setSampler(texture.sampler)
-    );
+        vk::DescriptorImageInfo{}
+            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setImageView(texture.image.view)
+            .setSampler(texture.sampler));
   }
 
-  vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
-    .setDstSet(set)
-    .setDstBinding(binding)
-    .setImageInfo(imageInfos)
-    .setDescriptorCount(imageInfos.size())
-    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+  vk::WriteDescriptorSet write =
+      vk::WriteDescriptorSet{}
+          .setDstSet(set)
+          .setDstBinding(binding)
+          .setImageInfo(imageInfos)
+          .setDescriptorCount(imageInfos.size())
+          .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
   updateDescriptor(write);
 }
 
-void GPU::setTextureDescriptorSet(
-  const Texture& texture,
-  const vk::DescriptorSet& set,
-  const uint32_t binding
-) {
-  vk::DescriptorImageInfo imageInfo = vk::DescriptorImageInfo{}
-    .setSampler(texture.sampler)
-    .setImageView(texture.image.view)
-    .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+void GPU::setTextureDescriptorSet(const Texture& texture,
+                                  const vk::DescriptorSet& set,
+                                  const uint32_t binding) {
+  vk::DescriptorImageInfo imageInfo =
+      vk::DescriptorImageInfo{}
+          .setSampler(texture.sampler)
+          .setImageView(texture.image.view)
+          .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
-  vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
-    .setDstSet(set)
-    .setDstBinding(binding)
-    .setImageInfo(imageInfo)
-    .setDescriptorCount(1)
-    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+  vk::WriteDescriptorSet write =
+      vk::WriteDescriptorSet{}
+          .setDstSet(set)
+          .setDstBinding(binding)
+          .setImageInfo(imageInfo)
+          .setDescriptorCount(1)
+          .setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
   updateDescriptor(write);
 }
 
-void GPU::setStorageBufferDescriptorSet(
-  const Buffer& src,
-  const vk::DescriptorSet& set,
-  const uint32_t binding
-) {
-  vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo{}
-    .setRange(src.size)
-    .setOffset(0)
-    .setBuffer(src.buffer);
+void GPU::setStorageBufferDescriptorSet(const Buffer& src,
+                                        const vk::DescriptorSet& set,
+                                        const uint32_t binding) {
+  vk::DescriptorBufferInfo bufferInfo =
+      vk::DescriptorBufferInfo{}.setRange(src.size).setOffset(0).setBuffer(
+          src.buffer);
 
-  vk::WriteDescriptorSet write = vk::WriteDescriptorSet{}
-    .setDstSet(set)
-    .setDstBinding(binding)
-    .setBufferInfo(bufferInfo)
-    .setDescriptorCount(1)
-    .setDescriptorType(vk::DescriptorType::eStorageBuffer);
-  
+  vk::WriteDescriptorSet write =
+      vk::WriteDescriptorSet{}
+          .setDstSet(set)
+          .setDstBinding(binding)
+          .setBufferInfo(bufferInfo)
+          .setDescriptorCount(1)
+          .setDescriptorType(vk::DescriptorType::eStorageBuffer);
+
   updateDescriptor(write);
 }
 
@@ -316,11 +311,9 @@ void GPU::destroySampler(const vk::Sampler& sampler) const {
   return device.destroySampler(sampler);
 }
 
-void GPU::createDescriptorSetLayouts() {
-}
+void GPU::createDescriptorSetLayouts() {}
 
-void GPU::createDescriptorSets() {
-}
+void GPU::createDescriptorSets() {}
 
 Buffer GPU::createBuffer(const void* data,
                          const vk::DeviceSize size,
@@ -346,7 +339,8 @@ Buffer GPU::createBuffer(const void* data,
                           &buffer.allocationInfo));
 
   buffer.buffer = b;
-  assert(!vmaCopyMemoryToAllocation(allocator, data, buffer.allocation, 0, size));
+  assert(
+      !vmaCopyMemoryToAllocation(allocator, data, buffer.allocation, 0, size));
 
   return buffer;
 }
@@ -935,13 +929,11 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
   vk::Flags<vk::ShaderStageFlagBits> stageFlagBits = options.shaders[0].stage;
 
   for (const Shader& shader : options.shaders) {
-    stages.push_back(
-      vk::PipelineShaderStageCreateInfo{}
-            .setStage(shader.stage)
-            .setModule(shader.module)
-            .setPName("main")
-            .setPSpecializationInfo(nullptr)
-    );
+    stages.push_back(vk::PipelineShaderStageCreateInfo{}
+                         .setStage(shader.stage)
+                         .setModule(shader.module)
+                         .setPName("main")
+                         .setPSpecializationInfo(nullptr));
 
     stageFlagBits = stageFlagBits | shader.stage;
   }
@@ -955,9 +947,9 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
           .setColorAttachmentCount(0);
 
   if (options.colorAttachmentCount) {
-    pipelineRenderingCreateInfo 
-      .setColorAttachmentCount(options.colorAttachmentCount)
-      .setColorAttachmentFormats(colorAttachmentFormat);
+    pipelineRenderingCreateInfo
+        .setColorAttachmentCount(options.colorAttachmentCount)
+        .setColorAttachmentFormats(colorAttachmentFormat);
   }
 
   vk::PushConstantRange pushConstantRange =
@@ -989,7 +981,8 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
       vk::PipelineRasterizationStateCreateInfo{}
           .setRasterizerDiscardEnable(0)
           .setDepthClampEnable(0)
-          .setDepthBiasEnable(options.depthConstantBias || options.depthSlopeBias)
+          .setDepthBiasEnable(options.depthConstantBias ||
+                              options.depthSlopeBias)
           .setDepthBiasConstantFactor(options.depthConstantBias)
           .setDepthBiasSlopeFactor(options.depthSlopeBias)
           .setPolygonMode(vk::PolygonMode::eFill)
@@ -998,7 +991,7 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
 
   vk::PipelineMultisampleStateCreateInfo multisampleState =
       vk::PipelineMultisampleStateCreateInfo{}
-          .setRasterizationSamples(sampleCount)
+          .setRasterizationSamples(options.msaa)
           .setMinSampleShading(0.2)
           .setSampleShadingEnable(1);
 
@@ -1036,16 +1029,19 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
 
   std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
 
-  for (const vk::DescriptorSetLayoutCreateInfo& createInfo : options.descriptorSetLayoutCreateInfos) {
-    descriptorSetLayouts.push_back(device.createDescriptorSetLayout(createInfo));
+  for (const vk::DescriptorSetLayoutCreateInfo& createInfo :
+       options.descriptorSetLayoutCreateInfos) {
+    descriptorSetLayouts.push_back(
+        device.createDescriptorSetLayout(createInfo));
   }
 
   pipeline.descriptorSetLayouts = descriptorSetLayouts;
 
-  vk::DescriptorSetAllocateInfo allocateInfo = vk::DescriptorSetAllocateInfo{}
-    .setDescriptorSetCount(options.descriptorSetLayoutCreateInfos.size())
-    .setDescriptorPool(descriptorPool)
-    .setSetLayouts(descriptorSetLayouts);
+  vk::DescriptorSetAllocateInfo allocateInfo =
+      vk::DescriptorSetAllocateInfo{}
+          .setDescriptorSetCount(options.descriptorSetLayoutCreateInfos.size())
+          .setDescriptorPool(descriptorPool)
+          .setSetLayouts(descriptorSetLayouts);
 
   pipeline.descriptorSets = device.allocateDescriptorSets(allocateInfo);
 
@@ -1091,7 +1087,8 @@ void GPU::destroyPipeline(const Pipeline& pipeline) const {
   for (const Shader& shader : pipeline.shaders) {
     destroyShader(shader);
   }
-  for (const vk::DescriptorSetLayout& setLayout : pipeline.descriptorSetLayouts) {
+  for (const vk::DescriptorSetLayout& setLayout :
+       pipeline.descriptorSetLayouts) {
     device.destroyDescriptorSetLayout(setLayout);
   }
   device.destroyPipelineLayout(pipeline.layout);
@@ -1173,8 +1170,8 @@ void GPU::beginShadowPass(const Texture& shadowMap) const {
   vk::RenderingInfo renderingInfo =
       vk::RenderingInfo{}
           .setColorAttachmentCount(0)
-          .setRenderArea(vk::Rect2D{}.setExtent(
-              vk::Extent2D{shadowSize, shadowSize}))
+          .setRenderArea(
+              vk::Rect2D{}.setExtent(vk::Extent2D{shadowSize, shadowSize}))
           .setLayerCount(1)
           .setViewMask(0)
           .setPDepthAttachment(&depthAttachment);
@@ -1400,141 +1397,148 @@ void GPU::submit(const uint32_t imageIndex) {
 
 void GPU::createPipelines() {
   std::vector<vk::DescriptorPoolSize> poolSizes = {
-    vk::DescriptorPoolSize{}
-        .setType(vk::DescriptorType::eUniformBuffer)
-        .setDescriptorCount(10),
-    vk::DescriptorPoolSize{}
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(300),
-    vk::DescriptorPoolSize{}
-        .setType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(10),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eUniformBuffer)
+          .setDescriptorCount(10),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eCombinedImageSampler)
+          .setDescriptorCount(300),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageBuffer)
+          .setDescriptorCount(10),
   };
 
   uint32_t sets = 0;
 
-  std::vector<std::vector<vk::DescriptorSetLayoutBinding>> mainPassDescriptorSetLayoutBindings{
-    {
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(0)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eAll)
-        .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-    },
-    {
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(0)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer),
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(1)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-    },
-    {
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(0)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(100),
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(100),
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(2)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(100),
-    },
-    {
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(0)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eUniformBuffer),
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(1)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eUniformBuffer),
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(2)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer),
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(3)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-    },
-  };
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>>
+      mainPassDescriptorSetLayoutBindings{
+          {vk::DescriptorSetLayoutBinding{}
+               .setBinding(0)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eAll)
+               .setDescriptorType(vk::DescriptorType::eUniformBuffer)},
+          {vk::DescriptorSetLayoutBinding{}
+               .setBinding(0)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+               .setDescriptorType(vk::DescriptorType::eStorageBuffer),
+           vk::DescriptorSetLayoutBinding{}
+               .setBinding(1)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+               .setDescriptorType(vk::DescriptorType::eStorageBuffer)},
+          {
+              vk::DescriptorSetLayoutBinding{}
+                  .setBinding(0)
+                  .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+                  .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                  .setDescriptorCount(100),
+              vk::DescriptorSetLayoutBinding{}
+                  .setBinding(1)
+                  .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+                  .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                  .setDescriptorCount(100),
+              vk::DescriptorSetLayoutBinding{}
+                  .setBinding(2)
+                  .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+                  .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                  .setDescriptorCount(100),
+          },
+          {vk::DescriptorSetLayoutBinding{}
+               .setBinding(0)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+               .setDescriptorType(vk::DescriptorType::eUniformBuffer),
+           vk::DescriptorSetLayoutBinding{}
+               .setBinding(1)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+               .setDescriptorType(vk::DescriptorType::eUniformBuffer),
+           vk::DescriptorSetLayoutBinding{}
+               .setBinding(2)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+               .setDescriptorType(vk::DescriptorType::eStorageBuffer),
+           vk::DescriptorSetLayoutBinding{}
+               .setBinding(3)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+               .setDescriptorType(vk::DescriptorType::eStorageBuffer)},
+      };
 
-  std::vector<vk::DescriptorSetLayoutCreateInfo> mainPassDescriptorSets = utils::getDescriptorSetLayoutCreateInfo(mainPassDescriptorSetLayoutBindings);
+  std::vector<vk::DescriptorSetLayoutCreateInfo> mainPassDescriptorSets =
+      utils::getDescriptorSetLayoutCreateInfo(
+          mainPassDescriptorSetLayoutBindings);
   sets += mainPassDescriptorSets.size();
 
-  std::vector<std::vector<vk::DescriptorSetLayoutBinding>> skyboxPassDescriptorSetLayoutBindings{
-    {
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(0)
-	    .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-    },
-  };
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>>
+      skyboxPassDescriptorSetLayoutBindings{
+          {vk::DescriptorSetLayoutBinding{}
+               .setBinding(0)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+               .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)},
+      };
 
-  std::vector<vk::DescriptorSetLayoutCreateInfo> skyboxDescriptorSets = utils::getDescriptorSetLayoutCreateInfo(skyboxPassDescriptorSetLayoutBindings);
+  std::vector<vk::DescriptorSetLayoutCreateInfo> skyboxDescriptorSets =
+      utils::getDescriptorSetLayoutCreateInfo(
+          skyboxPassDescriptorSetLayoutBindings);
   sets += skyboxDescriptorSets.size();
 
-  std::vector<std::vector<vk::DescriptorSetLayoutBinding>> shadowPassDescriptorSetLayoutBindings{
-    {
-      vk::DescriptorSetLayoutBinding{}
-        .setBinding(0)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-    },
-  };
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>>
+      shadowPassDescriptorSetLayoutBindings{
+          {vk::DescriptorSetLayoutBinding{}
+               .setBinding(0)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+               .setDescriptorType(vk::DescriptorType::eStorageBuffer)},
+      };
 
-  std::vector<vk::DescriptorSetLayoutCreateInfo> shadowDescriptorSets = utils::getDescriptorSetLayoutCreateInfo(shadowPassDescriptorSetLayoutBindings);
+  std::vector<vk::DescriptorSetLayoutCreateInfo> shadowDescriptorSets =
+      utils::getDescriptorSetLayoutCreateInfo(
+          shadowPassDescriptorSetLayoutBindings);
   sets += shadowDescriptorSets.size();
 
-  vk::DescriptorPoolCreateInfo poolCreateInfo = vk::DescriptorPoolCreateInfo{}
-    .setPoolSizes(poolSizes)
-    .setPoolSizeCount(poolSizes.size())
-    .setMaxSets(sets);
+  vk::DescriptorPoolCreateInfo poolCreateInfo =
+      vk::DescriptorPoolCreateInfo{}
+          .setPoolSizes(poolSizes)
+          .setPoolSizeCount(poolSizes.size())
+          .setMaxSets(sets);
 
   descriptorPool = device.createDescriptorPool(poolCreateInfo);
 
   mainPipeline =
       createPipeline({{loadShader("./shaders/shader.vert.glsl.spv",
-                                vk::ShaderStageFlagBits::eVertex),
-                     loadShader("./shaders/shader.frag.glsl.spv",
-                                vk::ShaderStageFlagBits::eFragment)},
-                     mainPassDescriptorSets, sizeof(MainPassFrameData), 1});
-
+                                  vk::ShaderStageFlagBits::eVertex),
+                       loadShader("./shaders/shader.frag.glsl.spv",
+                                  vk::ShaderStageFlagBits::eFragment)},
+                      mainPassDescriptorSets,
+                      sizeof(MainPassFrameData),
+                      1,
+                      0.0,
+                      0.0,
+                      sampleCount});
 
   skyboxPipeline =
       createPipeline({{loadShader("./shaders/skybox.vert.glsl.spv",
-                                vk::ShaderStageFlagBits::eVertex),
-                     loadShader("./shaders/skybox.frag.glsl.spv",
-                                vk::ShaderStageFlagBits::eFragment)},
-                     skyboxDescriptorSets, sizeof(SkyboxPassFrameData), 1});
+                                  vk::ShaderStageFlagBits::eVertex),
+                       loadShader("./shaders/skybox.frag.glsl.spv",
+                                  vk::ShaderStageFlagBits::eFragment)},
+                      skyboxDescriptorSets,
+                      sizeof(SkyboxPassFrameData),
+                      1,
+                      0.0,
+                      0.0,
+                      sampleCount});
 
   shadowsPipeline =
-      createPipeline({
-      {loadShader("./shaders/shadows.vert.glsl.spv",
-                                vk::ShaderStageFlagBits::eVertex)},
-        shadowDescriptorSets, 
-        sizeof(ShadowPassFrameData),
-      0,
-      1.25f,
-      1.75f
-  });
+      createPipeline({{loadShader("./shaders/shadows.vert.glsl.spv",
+                                  vk::ShaderStageFlagBits::eVertex)},
+                      shadowDescriptorSets,
+                      sizeof(ShadowPassFrameData),
+                      0,
+                      1.25f,
+                      1.75f});
 };
 
 void GPU::beginRecordingCommands() const {
@@ -1545,6 +1549,7 @@ void GPU::beginRecordingCommands() const {
 }
 
 Image GPU::createShadowMap() const {
-  return createDepthImage(
-      {sampleCount, vk::ImageUsageFlagBits::eSampled, vk::Extent2D{shadowSize, shadowSize}});
+  return createDepthImage({vk::SampleCountFlagBits::e1,
+                           vk::ImageUsageFlagBits::eSampled,
+                           vk::Extent2D{shadowSize, shadowSize}});
 }

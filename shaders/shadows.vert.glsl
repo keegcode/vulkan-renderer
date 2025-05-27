@@ -15,8 +15,8 @@ layout(scalar, push_constant) uniform FrameData {
 frameData;
 
 struct Entity {
-   mat4 matrix;
-   uint assetIdx;
+  mat4 matrix;
+  uint assetIdx;
 };
 
 layout(scalar, set = 0, binding = 0) readonly buffer Entities {
@@ -25,6 +25,7 @@ layout(scalar, set = 0, binding = 0) readonly buffer Entities {
 entities;
 
 void main() {
-  gl_Position = frameData.lightSpaceMatrix * entities.data[frameData.entityId].matrix * frameData.model *
-                vec4(inPosition, 1.0);
+  gl_Position =
+      frameData.lightSpaceMatrix * (entities.data[frameData.entityId].matrix *
+                                    frameData.model * vec4(inPosition, 1.0));
 }

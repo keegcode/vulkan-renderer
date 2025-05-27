@@ -178,7 +178,7 @@ class Engine {
   Skylight skylight;
   std::vector<PointLight> pointLights;
   std::vector<SpotLight> spotLights;
-  
+
   Buffer transformUniform;
   Buffer directionalLightUniform;
   Buffer skylightUniform;
@@ -208,7 +208,7 @@ class Engine {
 
   void loadStatic();
   void loadConfig(const EngineConfig& state);
-    
+
   void loadAsset(const std::filesystem::path& path);
   void processNode(Asset& asset,
                    const aiScene* scene,

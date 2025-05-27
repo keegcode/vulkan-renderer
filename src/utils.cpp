@@ -29,18 +29,16 @@ std::vector<char> utils::readFile(const std::filesystem::path& path) {
   return bytes;
 }
 
-std::vector<vk::DescriptorSetLayoutCreateInfo> utils::getDescriptorSetLayoutCreateInfo(
-  const std::vector<std::vector<vk::DescriptorSetLayoutBinding>>& layout
-) {
+std::vector<vk::DescriptorSetLayoutCreateInfo>
+utils::getDescriptorSetLayoutCreateInfo(
+    const std::vector<std::vector<vk::DescriptorSetLayoutBinding>>& layout) {
   std::vector<vk::DescriptorSetLayoutCreateInfo> sets{};
   std::vector<vk::DescriptorPoolSize> sizes{};
 
   for (const std::vector<vk::DescriptorSetLayoutBinding>& bindings : layout) {
-    sets.push_back(
-      vk::DescriptorSetLayoutCreateInfo{}
-        .setBindings(bindings)
-        .setBindingCount(bindings.size())
-    );
+    sets.push_back(vk::DescriptorSetLayoutCreateInfo{}
+                       .setBindings(bindings)
+                       .setBindingCount(bindings.size()));
   }
 
   return sets;

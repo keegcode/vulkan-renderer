@@ -9,6 +9,5 @@ vk::DeviceSize getAlignedSize(const vk::DeviceSize size,
 std::vector<char> readFile(const std::filesystem::path& path);
 uint32_t getMipLevels(const uint32_t h, const uint32_t w);
 std::vector<vk::DescriptorSetLayoutCreateInfo> getDescriptorSetLayoutCreateInfo(
-  const std::vector<std::vector<vk::DescriptorSetLayoutBinding>>& layout
-);
+    const std::vector<std::vector<vk::DescriptorSetLayoutBinding>>& layout);
 }  // namespace utils

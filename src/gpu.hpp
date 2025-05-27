@@ -75,11 +75,13 @@ struct Shader {
 
 struct PipelineOptions {
   std::vector<Shader> shaders;
-  std::vector<vk::DescriptorSetLayoutCreateInfo>& descriptorSetLayoutCreateInfos;
+  std::vector<vk::DescriptorSetLayoutCreateInfo>&
+      descriptorSetLayoutCreateInfos;
   const uint32_t pushConstantSize;
   const uint32_t colorAttachmentCount;
   const float depthConstantBias = 0.0;
   const float depthSlopeBias = 0.0;
+  const vk::SampleCountFlagBits msaa = vk::SampleCountFlagBits::e1;
 };
 
 struct Pipeline {
@@ -112,7 +114,7 @@ struct DepthImageOptions {
 
 class GPU {
  public:
-  static const uint32_t shadowSize = 512;
+  static const uint32_t shadowSize = 2048;
   static_assert((shadowSize & (shadowSize - 1)) == 0,
                 "Shadow size should be 2^n");
 
@@ -222,26 +224,18 @@ class GPU {
   Shader loadShader(const std::string_view path,
                     vk::ShaderStageFlagBits stage) const;
 
-  void setUniformDescriptorSet(
-    const Buffer& src,
-    const vk::DescriptorSet& set,
-    const uint32_t binding
-  );
-  void setTextureArrayDescriptorSet(
-    const std::vector<Texture>& textures,
-    const vk::DescriptorSet& set,
-    const uint32_t binding
-  );
-  void setTextureDescriptorSet(
-    const Texture& texture,
-    const vk::DescriptorSet& set,
-    const uint32_t binding
-  );
-  void setStorageBufferDescriptorSet(
-    const Buffer& src,
-    const vk::DescriptorSet& set,
-    const uint32_t binding
-  );
+  void setUniformDescriptorSet(const Buffer& src,
+                               const vk::DescriptorSet& set,
+                               const uint32_t binding);
+  void setTextureArrayDescriptorSet(const std::vector<Texture>& textures,
+                                    const vk::DescriptorSet& set,
+                                    const uint32_t binding);
+  void setTextureDescriptorSet(const Texture& texture,
+                               const vk::DescriptorSet& set,
+                               const uint32_t binding);
+  void setStorageBufferDescriptorSet(const Buffer& src,
+                                     const vk::DescriptorSet& set,
+                                     const uint32_t binding);
   void updateDescriptor(const vk::WriteDescriptorSet& write);
 
   Pipeline createPipeline(const PipelineOptions& options) const;
