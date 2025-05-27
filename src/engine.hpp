@@ -75,8 +75,9 @@ struct SpotLight {
   float cutOff;
   glm::vec3 specular;
   float outerCutOff;
+  uint32_t shadowMapIdx;
   glm::mat4 lightSpaceMatrix;
-  uint32_t shadowMapIdx = 0;
+  bool shadows;
 };
 
 struct PointLight {
@@ -86,8 +87,9 @@ struct PointLight {
   float linear;
   glm::vec3 diffuse;
   glm::vec3 specular;
+  uint32_t shadowMapIdx;
   glm::mat4 lightSpaceMatrix;
-  uint32_t shadowMapIdx = 0;
+  bool shadows;
 };
 
 struct DirectionalLight {
@@ -95,8 +97,9 @@ struct DirectionalLight {
   glm::vec3 ambient;
   glm::vec3 diffuse;
   glm::vec3 specular;
+  uint32_t shadowMapIdx;
   glm::mat4 lightSpaceMatrix;
-  uint32_t shadowMapIdx = 0;
+  bool shadows;
 };
 
 struct Skylight {
@@ -205,7 +208,7 @@ class Engine {
 
   void loadStatic();
   void loadConfig(const EngineConfig& state);
-
+    
   void loadAsset(const std::filesystem::path& path);
   void processNode(Asset& asset,
                    const aiScene* scene,
@@ -232,7 +235,7 @@ class Engine {
   void loadSkybox();
   void drawShadows(const ShadowPassFrameData& frameData);
   void drawEntities(const MainPassFrameData& frameData);
-  void drawEntity(const uint32_t entityIdx, const uint32_t meshIdx);
-  void drawEntityShadow(const uint32_t entityIdx, const uint32_t meshIdx);
+  void drawEntity(const uint32_t meshIdx);
+  void drawEntityShadow(const uint32_t meshIdx);
   void drawMesh(const uint32_t meshIdx);
 };

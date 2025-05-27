@@ -28,8 +28,8 @@ struct MainPassFrameData {
   glm::vec3 cameraPos;
   uint32_t pointLights;
   uint32_t spotLights;
-  uint32_t entityId;
   uint32_t materialId;
+  uint32_t entityId;
 };
 
 struct SkyboxPassFrameData {
@@ -37,12 +37,11 @@ struct SkyboxPassFrameData {
 };
 
 struct Vertex {
-  float position[3];
-  float clr[4];
-  float uv[2];
-  float normal[3];
-  float tangent[3];
-  float bitangent[3];
+  glm::vec3 position;
+  glm::vec4 clr;
+  glm::vec2 uv;
+  glm::vec3 normal;
+  glm::vec4 tangent;
 };
 
 struct Buffer {
@@ -79,6 +78,8 @@ struct PipelineOptions {
   std::vector<vk::DescriptorSetLayoutCreateInfo>& descriptorSetLayoutCreateInfos;
   const uint32_t pushConstantSize;
   const uint32_t colorAttachmentCount;
+  const float depthConstantBias = 0.0;
+  const float depthSlopeBias = 0.0;
 };
 
 struct Pipeline {
@@ -111,7 +112,7 @@ struct DepthImageOptions {
 
 class GPU {
  public:
-  static const uint32_t shadowSize = 1024;
+  static const uint32_t shadowSize = 512;
   static_assert((shadowSize & (shadowSize - 1)) == 0,
                 "Shadow size should be 2^n");
 

@@ -14,6 +14,7 @@ A 3D rendering engine built with Vulkan.
 - [x] Multiple light types (Directional, Point, Spot)
 - [x] Basic shadow mapping
 - [x] Camera controls
+- [x] Normal Mapping 
 
 ### Roadmap
 

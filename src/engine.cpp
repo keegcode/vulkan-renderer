@@ -72,26 +72,33 @@ void Engine::drawFrame(uint64_t deltaTime) {
                             transformUniform.allocation, 0,
                             sizeof(Transform));
   if (!shadowsGenerated) {
-    gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
+	ShadowPassFrameData shadowPassFrameData{};
+	shadowPassFrameData.model = transform.model;
+	shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
 
-    ShadowPassFrameData shadowPassFrameData{};
-    shadowPassFrameData.model = transform.model;
-    shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
-
-    drawShadows(shadowPassFrameData);
-
-    gpu.commandBuffer.endRendering();
+    if (directionalLight.shadows) {
+		gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
+		drawShadows(shadowPassFrameData);
+		gpu.commandBuffer.endRendering();
+    }
 
     for (const PointLight& pointLight : pointLights) {
+      if (!pointLight.shadows) {
+        continue;
+      }
+
       gpu.beginShadowPass(shadowMaps[pointLight.shadowMapIdx]);
       shadowPassFrameData.model = transform.model;
       shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
-
       drawShadows(shadowPassFrameData);
       gpu.commandBuffer.endRendering();
     }
 
     for (const SpotLight& spotLight : spotLights) {
+      if (!spotLight.shadows) {
+        continue;
+      }
+
       gpu.beginShadowPass(shadowMaps[spotLight.shadowMapIdx]);
       shadowPassFrameData.model = transform.model;
       shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
@@ -443,10 +450,17 @@ void Engine::loadMesh(Asset& asset,
       vertex.tangent[0] = assimpMesh->mTangents[j].x;
       vertex.tangent[1] = assimpMesh->mTangents[j].y;
       vertex.tangent[2] = assimpMesh->mTangents[j].z;
+      vertex.tangent[3] = 1.0f;
 
-      vertex.bitangent[0] = assimpMesh->mBitangents[j].x;
-      vertex.bitangent[1] = assimpMesh->mBitangents[j].y;
-      vertex.bitangent[2] = assimpMesh->mBitangents[j].z;
+      glm::vec3 bitangent{assimpMesh->mBitangents[j].x,
+                          assimpMesh->mBitangents[j].y,
+                          assimpMesh->mBitangents[j].z};
+
+      if (glm::dot(glm::cross(glm::vec3{vertex.tangent}, vertex.normal),
+                   bitangent) <
+          0.0f) {
+        vertex.tangent[3] = -1.0f;
+      }
     }
 
     vertex.uv[0] = 0.0f;
@@ -651,6 +665,33 @@ Image Engine::loadCubemap(const std::string& type) {
 }
 
 void Engine::prepareDescriptors() {
+
+  Texture shadowMap{};
+  shadowMap.sampler = shadowMapSampler;
+  shadowMap.type = TextureType::Shadow;
+
+  if (directionalLight.shadows) {
+	  directionalLight.shadowMapIdx = shadowMaps.size();
+	  shadowMap.image = gpu.createShadowMap();
+	  shadowMaps.push_back(shadowMap);
+  }
+
+  for (PointLight& light : pointLights) {
+    if (light.shadows) {
+		light.shadowMapIdx = shadowMaps.size();
+		shadowMap.image = gpu.createShadowMap();
+		shadowMaps.push_back(shadowMap);
+    }
+  }
+
+  for (SpotLight& light : spotLights) {
+    if (light.shadows) {
+		light.shadowMapIdx = shadowMaps.size();
+		shadowMap.image = gpu.createShadowMap();
+		shadowMaps.push_back(shadowMap);
+    }
+  }
+
   transformUniform =
       gpu.createBuffer(&transform, sizeof(Transform),
                        vk::BufferUsageFlagBits::eUniformBuffer);
@@ -663,26 +704,6 @@ void Engine::prepareDescriptors() {
       gpu.createBuffer(&skylight, sizeof(Skylight),
                        vk::BufferUsageFlagBits::eUniformBuffer);
 
-  directionalLight.shadowMapIdx = shadowMaps.size();
-  
-  Texture shadowMap{};
-  shadowMap.type = TextureType::Shadow;
-  shadowMap.sampler = shadowMapSampler;
-  shadowMap.image = gpu.createShadowMap();
-
-  shadowMaps.push_back(shadowMap);
-
-  for (PointLight& light : pointLights) {
-    light.shadowMapIdx = shadowMaps.size();
-    shadowMap.image = gpu.createShadowMap();
-    shadowMaps.push_back(shadowMap);
-  }
-
-  for (SpotLight& light : spotLights) {
-    light.shadowMapIdx = shadowMaps.size();
-    shadowMap.image = gpu.createShadowMap();
-    shadowMaps.push_back(shadowMap);
-  }
 
   if (pointLights.size()) {
     pointLightsBuffer = gpu.createBuffer(
@@ -738,10 +759,11 @@ void Engine::prepareDescriptors() {
   gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2], 0);
 
   if (shadowMaps.size()) {
-    gpu.setTextureArrayDescriptorSet(shadowMaps, gpu.mainPipeline.descriptorSets[2], 1);
+	  gpu.setTextureArrayDescriptorSet(shadowMaps, gpu.mainPipeline.descriptorSets[2], 1);
   }
 
   gpu.setTextureArrayDescriptorSet(std::vector{skybox}, gpu.mainPipeline.descriptorSets[2], 2);
+  gpu.setTextureDescriptorSet(skybox, gpu.skyboxPipeline.descriptorSets[0], 0);
 }
 
 void Engine::loadSkybox() {
@@ -822,7 +844,7 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
                                     sizeof(ShadowPassFrameData), &data);
 
     for (const uint32_t meshIdx : asset.meshes) {
-      drawEntityShadow(i, meshIdx);
+      drawEntityShadow(meshIdx);
     }
   }
 }
@@ -850,24 +872,13 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
   std::vector<std::array<uint32_t, 3>> transparent{};
   std::vector<std::array<uint32_t, 2>> opaque{};
 
-  MainPassFrameData data = frameData;
-
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
     Asset& asset = assets[entity.assetIdx];
-    
-    data.entityId = i;
 
     for (const uint32_t meshIdx : asset.meshes) {
       Mesh& mesh = meshes[meshIdx];
       Material& material = materials[mesh.materialIdx];
-
-      data.materialId = mesh.materialIdx;
-
-      gpu.commandBuffer.pushConstants(
-        gpu.mainPipeline.layout,
-        vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-        sizeof(MainPassFrameData), &data);
 
       if (material.alphaMode != AlphaMode::Opaque) {
         float distance =
@@ -883,8 +894,18 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
   vk::Bool32 enables[1] = {false};
   gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
 
+  MainPassFrameData data = frameData;
+
   for (const auto& [entityIdx, meshIdx] : opaque) {
-    drawEntity(entityIdx, meshIdx);
+    data.entityId = entityIdx;
+    data.materialId = meshes[meshIdx].materialIdx;
+
+	gpu.commandBuffer.pushConstants(
+		gpu.mainPipeline.layout,
+		vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
+		sizeof(MainPassFrameData), &data);
+
+    drawEntity(meshIdx);
   }
 
   enables[0] = true;
@@ -894,8 +915,16 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
             [](const std::array<uint32_t, 3>& a,
                const std::array<uint32_t, 3>& b) { return a[2] > b[2]; });
 
-  for (const auto& object : transparent) {
-    drawEntity(object[0], object[1]);
+  for (const auto& [entityIdx, meshIdx, distance] : transparent) {
+    data.entityId = entityIdx;
+    data.materialId = meshes[meshIdx].materialIdx;
+
+	gpu.commandBuffer.pushConstants(
+		gpu.mainPipeline.layout,
+		vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
+		sizeof(MainPassFrameData), &data);
+
+    drawEntity(meshIdx);
   }
 }
 
@@ -1003,8 +1032,7 @@ void Engine::drawMesh(const uint32_t meshIdx) {
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
 
-void Engine::drawEntityShadow(const uint32_t entityIdx,
-                              const uint32_t meshIdx) {
+void Engine::drawEntityShadow(const uint32_t meshIdx) {
   vk::DeviceSize offsets[1] = {0};
   Mesh& mesh = meshes[meshIdx];
 
@@ -1015,7 +1043,7 @@ void Engine::drawEntityShadow(const uint32_t entityIdx,
   gpu.commandBuffer.drawIndexed(mesh.indicesCount, 1, 0, 0, 1);
 }
 
-void Engine::drawEntity(const uint32_t entityIdx, const uint32_t meshIdx) {
+void Engine::drawEntity(const uint32_t meshIdx) {
   vk::DeviceSize offsets[1] = {0};
 
   Mesh& mesh = meshes[meshIdx];
@@ -1033,7 +1061,24 @@ std::pair<Texture, AssimpSampler> Engine::loadTexture(
     const aiMaterial* material,
     const aiTextureType textureType) {
   Texture texture{};
-  texture.type = TextureType::Specular;
+
+  switch (textureType) { 
+	  case aiTextureType_DIFFUSE:
+		  texture.type = TextureType::BaseColor;
+            break;
+	  case aiTextureType_SPECULAR:
+		  texture.type = TextureType::Specular;
+            break;
+	  case aiTextureType_NORMALS:
+		  texture.type = TextureType::Normal;
+            break;
+	  case aiTextureType_HEIGHT:
+		  texture.type = TextureType::Height;
+            break;
+	  default:
+		  texture.type = TextureType::BaseColor;
+		  break;
+  }
 
   aiString texturePath;
   material->GetTexture(textureType, 0, &texturePath);

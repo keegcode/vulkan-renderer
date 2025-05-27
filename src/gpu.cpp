@@ -30,8 +30,8 @@ void GPU::createInstance() {
           .set_app_name("VkRenderer")
           .require_api_version(1, 3)
           .enable_extensions(display.vulkanExtensions)
-          .enable_validation_layers(true)
-          .use_default_debug_messenger()
+          //.enable_validation_layers(true)
+          //.use_default_debug_messenger()
           .build();
 
   VKB_ASSERT(instanceResult);
@@ -924,22 +924,12 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
           .setBinding(0)
           .setLocation(4)
           .setOffset(offsetof(Vertex, tangent))
-          .setFormat(vk::Format::eR32G32B32Sfloat);
-
-  vk::VertexInputAttributeDescription vertexBitangentAttributeDescription =
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(5)
-          .setOffset(offsetof(Vertex, bitangent))
-          .setFormat(vk::Format::eR32G32B32Sfloat);
+          .setFormat(vk::Format::eR32G32B32A32Sfloat);
 
   std::vector<vk::VertexInputAttributeDescription> inputAttributes = {
-      vertexPositionAttributeDescription,
-      vertexColorAttributeDescription,
-      vertexTextureCoordAttributeDescription,
-      vertexNormalsAttributeDescription,
-      vertexTangentAttributeDescription,
-      vertexBitangentAttributeDescription};
+      vertexPositionAttributeDescription, vertexColorAttributeDescription,
+      vertexTextureCoordAttributeDescription, vertexNormalsAttributeDescription,
+      vertexTangentAttributeDescription};
 
   std::vector<vk::PipelineShaderStageCreateInfo> stages{};
   vk::Flags<vk::ShaderStageFlagBits> stageFlagBits = options.shaders[0].stage;
@@ -999,7 +989,9 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
       vk::PipelineRasterizationStateCreateInfo{}
           .setRasterizerDiscardEnable(0)
           .setDepthClampEnable(0)
-          .setDepthBiasEnable(0)
+          .setDepthBiasEnable(options.depthConstantBias || options.depthSlopeBias)
+          .setDepthBiasConstantFactor(options.depthConstantBias)
+          .setDepthBiasSlopeFactor(options.depthSlopeBias)
           .setPolygonMode(vk::PolygonMode::eFill)
           .setFrontFace(vk::FrontFace::eCounterClockwise)
           .setLineWidth(1.0f);
@@ -1407,7 +1399,18 @@ void GPU::submit(const uint32_t imageIndex) {
 }
 
 void GPU::createPipelines() {
-  std::vector<vk::DescriptorPoolSize> poolSizes;
+  std::vector<vk::DescriptorPoolSize> poolSizes = {
+    vk::DescriptorPoolSize{}
+        .setType(vk::DescriptorType::eUniformBuffer)
+        .setDescriptorCount(10),
+    vk::DescriptorPoolSize{}
+        .setType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(300),
+    vk::DescriptorPoolSize{}
+        .setType(vk::DescriptorType::eStorageBuffer)
+        .setDescriptorCount(10),
+  };
+
   uint32_t sets = 0;
 
   std::vector<std::vector<vk::DescriptorSetLayoutBinding>> mainPassDescriptorSetLayoutBindings{
@@ -1471,26 +1474,21 @@ void GPU::createPipelines() {
     },
   };
 
-  auto [mainPassDescriptorSets, mainPassPoolSizes] = utils::getDescriptorSetLayoutCreateInfo(mainPassDescriptorSetLayoutBindings);
-
+  std::vector<vk::DescriptorSetLayoutCreateInfo> mainPassDescriptorSets = utils::getDescriptorSetLayoutCreateInfo(mainPassDescriptorSetLayoutBindings);
   sets += mainPassDescriptorSets.size();
-  poolSizes.reserve(poolSizes.size() + mainPassPoolSizes.size());
-  poolSizes.insert(poolSizes.end(), mainPassPoolSizes.begin(), mainPassPoolSizes.end());
 
   std::vector<std::vector<vk::DescriptorSetLayoutBinding>> skyboxPassDescriptorSetLayoutBindings{
     {
       vk::DescriptorSetLayoutBinding{}
         .setBinding(0)
+	    .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
     },
   };
 
-  auto [skyboxDescriptorSets, skyboxPoolSizes] = utils::getDescriptorSetLayoutCreateInfo(skyboxPassDescriptorSetLayoutBindings);
-
+  std::vector<vk::DescriptorSetLayoutCreateInfo> skyboxDescriptorSets = utils::getDescriptorSetLayoutCreateInfo(skyboxPassDescriptorSetLayoutBindings);
   sets += skyboxDescriptorSets.size();
-  poolSizes.reserve(poolSizes.size() + skyboxPoolSizes.size());
-  poolSizes.insert(poolSizes.end(), skyboxPoolSizes.begin(), skyboxPoolSizes.end());
 
   std::vector<std::vector<vk::DescriptorSetLayoutBinding>> shadowPassDescriptorSetLayoutBindings{
     {
@@ -1502,11 +1500,8 @@ void GPU::createPipelines() {
     },
   };
 
-  auto [shadowDescriptorSets, shadowPoolSizes] = utils::getDescriptorSetLayoutCreateInfo(shadowPassDescriptorSetLayoutBindings);
-
+  std::vector<vk::DescriptorSetLayoutCreateInfo> shadowDescriptorSets = utils::getDescriptorSetLayoutCreateInfo(shadowPassDescriptorSetLayoutBindings);
   sets += shadowDescriptorSets.size();
-  poolSizes.reserve(poolSizes.size() + shadowPoolSizes.size());
-  poolSizes.insert(poolSizes.end(), shadowPoolSizes.begin(), shadowPoolSizes.end());
 
   vk::DescriptorPoolCreateInfo poolCreateInfo = vk::DescriptorPoolCreateInfo{}
     .setPoolSizes(poolSizes)
@@ -1536,7 +1531,9 @@ void GPU::createPipelines() {
                                 vk::ShaderStageFlagBits::eVertex)},
         shadowDescriptorSets, 
         sizeof(ShadowPassFrameData),
-      0
+      0,
+      1.25f,
+      1.75f
   });
 };
 

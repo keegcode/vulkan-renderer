@@ -38,9 +38,9 @@ int32_t main() {
 
   config.directionalLight.direction =
       glm::normalize(glm::vec3{0.0f, -150.0f, 0.0f});
-  config.directionalLight.ambient = glm::vec3{0.1f};
-  config.directionalLight.diffuse = glm::vec3{0.4f};
-  config.directionalLight.specular = glm::vec3{0.4f};
+  config.directionalLight.ambient = glm::vec3{0.01f};
+  config.directionalLight.diffuse = glm::vec3{0.01f};
+  config.directionalLight.specular = glm::vec3{0.01f};
 
   config.directionalLight.lightSpaceMatrix =
       glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 10.0f, 400.0f);
@@ -51,9 +51,9 @@ int32_t main() {
 
   PointLight pointLight{};
   pointLight.position = glm::vec3{0.0f, 100.0f, -100.0f};
-  pointLight.ambient = glm::vec3{0.05f};
-  pointLight.diffuse = glm::vec3{0.25f};
-  pointLight.specular = glm::vec3{0.25f};
+  pointLight.ambient = glm::vec3{0.01f};
+  pointLight.diffuse = glm::vec3{0.6f};
+  pointLight.specular = glm::vec3{0.6f};
   pointLight.constant = 1.0f;
   pointLight.linear = 0.01f;
   pointLight.lightSpaceMatrix =
@@ -61,7 +61,7 @@ int32_t main() {
   pointLight.lightSpaceMatrix[1][1] *= -1;
   pointLight.lightSpaceMatrix *= glm::lookAt(
       pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  // config.pointLights.push_back(pointLight);
+  config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0f, 100.0f, 5.0f};
@@ -69,10 +69,10 @@ int32_t main() {
   spotLight.cutOff = glm::cos(glm::radians(10.0f));
   spotLight.outerCutOff = glm::cos(glm::radians(30.0f));
   spotLight.ambient = glm::vec3{0.01f};
-  spotLight.diffuse = glm::vec3{0.2f};
-  spotLight.specular = glm::vec3{0.2f};
+  spotLight.diffuse = glm::vec3{0.6f};
+  spotLight.specular = glm::vec3{0.6f};
   spotLight.constant = 1.0f;
-  spotLight.linear = 1.0f;
+  spotLight.linear = 0.01f;
   spotLight.lightSpaceMatrix =
       glm::perspective(glm::radians(80.0f), 1.0f, 1.0f, 500.0f);
   spotLight.lightSpaceMatrix[1][1] *= -1;
