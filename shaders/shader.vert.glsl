@@ -13,14 +13,14 @@ layout(location = 2) out vec4 outPos;
 layout(location = 3) out vec3 outNormal;
 layout(location = 4) out vec4 outTangent;
 
-layout(scalar, push_constant) uniform FrameData {
+layout(scalar, push_constant) uniform PushConstant {
   vec3 camera;
   uint pointLights;
   uint spotLights;
   uint materialId;
   uint entityId;
 }
-frameData;
+pushConstant;
 
 layout(scalar, set = 0, binding = 0) uniform Transform {
   mat4 model;
@@ -31,7 +31,7 @@ transform;
 
 struct Entity {
   mat4 matrix;
-  uint assetIdx;
+  uint modelIdx;
 };
 
 layout(scalar, set = 1, binding = 0) readonly buffer Entities {
@@ -40,7 +40,7 @@ layout(scalar, set = 1, binding = 0) readonly buffer Entities {
 entities;
 
 void main() {
-  Entity entity = entities.data[frameData.entityId];
+  Entity entity = entities.data[pushConstant.entityId];
 
   vec4 pos = (entity.matrix * transform.model * vec4(inPosition, 1.0));
 

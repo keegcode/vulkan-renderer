@@ -18,13 +18,18 @@ void inline VKB_ASSERT(vkb::Result<T> vkbResult) {
   }
 }
 
-struct ShadowPassFrameData {
-  glm::mat4 lightSpaceMatrix;
-  glm::mat4 model;
+struct ShadowPassPushConstant {
   uint32_t entityId;
+  glm::mat4 model;
+  glm::mat4 projection;
 };
 
-struct MainPassFrameData {
+struct ShadowCubePassPushConstant {
+  uint32_t entityId;
+  glm::vec3 lightPos;
+};
+
+struct MainPassPushConstant {
   glm::vec3 cameraPos;
   uint32_t pointLights;
   uint32_t spotLights;
@@ -32,7 +37,7 @@ struct MainPassFrameData {
   uint32_t entityId;
 };
 
-struct SkyboxPassFrameData {
+struct SkyboxPassPushConstant {
   glm::mat4 matrix;
 };
 
@@ -59,7 +64,7 @@ struct Image {
   vk::Image image;
 };
 
-enum class TextureType { BaseColor, Specular, Cube, Normal, Height, Shadow };
+enum class TextureType { BaseColor, MetallicRoughness, Cube, Normal, Emissive, Shadow };
 
 struct Texture {
   Image image;
@@ -82,6 +87,14 @@ struct PipelineOptions {
   const float depthConstantBias = 0.0;
   const float depthSlopeBias = 0.0;
   const vk::SampleCountFlagBits msaa = vk::SampleCountFlagBits::e1;
+  const uint32_t viewMask = 0;
+};
+
+struct CubemapOptions {
+  vk::Extent2D extent;
+  vk::Format format;
+  vk::ImageUsageFlagBits usage;
+  vk::ImageAspectFlagBits aspect;
 };
 
 struct Pipeline {
@@ -114,7 +127,7 @@ struct DepthImageOptions {
 
 class GPU {
  public:
-  static const uint32_t shadowSize = 2048;
+  static const uint32_t shadowSize = 1024;
   static_assert((shadowSize & (shadowSize - 1)) == 0,
                 "Shadow size should be 2^n");
 
@@ -126,6 +139,7 @@ class GPU {
   Pipeline mainPipeline;
   Pipeline skyboxPipeline;
   Pipeline shadowsPipeline;
+  Pipeline shadowCubesPipeline;
 
   vkb::Instance instance;
   vk::detail::DispatchLoaderDynamic dld;
@@ -158,6 +172,7 @@ class GPU {
   vk::CommandBuffer commandBuffer;
 
   Image depthImage;
+  Image depthCubemap;
   Image multisampleImage;
 
   vk::Viewport viewport;
@@ -212,8 +227,13 @@ class GPU {
                         const vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
                              const vk::Extent2D& extent);
+  Image createCubemapTexture(const CubemapOptions& options) const;
+  Image GPU::createDepthCubemap() const;
+  Image GPU::createF32Cubemap() const;
+
+  Image createMultiSampleImage();
+
   void createImages();
-  void createMultiSampleImage();
   void generateMipmaps(const Image& image);
 
   vk::Sampler createSampler(const vk::SamplerCreateInfo& createInfo) const;
@@ -245,6 +265,7 @@ class GPU {
   void resetFence() const;
   void beginRecordingCommands() const;
   void beginMainPass(const uint32_t imageIndex);
+  void beginShadowCubePass(const Texture& shadowMap) const;
   void beginShadowPass(const Texture& texture) const;
   void submit(const uint32_t imageIndex);
 

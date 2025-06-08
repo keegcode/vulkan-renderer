@@ -129,6 +129,10 @@ void GPU::destroy() const {
   destroyPipeline(mainPipeline);
   destroyPipeline(skyboxPipeline);
   destroyPipeline(shadowsPipeline);
+  destroyPipeline(shadowCubesPipeline);
+
+  device.destroyImageView(depthCubemap.view);
+  vmaDestroyImage(allocator, depthCubemap.image, depthCubemap.allocation);
 
   device.destroyDescriptorPool(descriptorPool);
   device.destroyCommandPool(commandPool);
@@ -152,7 +156,7 @@ void GPU::pickPhysicalDevice() {
   std::vector<const char*> extensions = {
       vk::EXTDescriptorIndexingExtensionName,
       vk::EXTExtendedDynamicState3ExtensionName,
-      vk::EXTScalarBlockLayoutExtensionName};
+      vk::EXTScalarBlockLayoutExtensionName, vk::KHRMultiviewExtensionName};
 
   vk::PhysicalDeviceFeatures features =
       vk::PhysicalDeviceFeatures{}.setSampleRateShading(1).setSamplerAnisotropy(
@@ -184,6 +188,8 @@ void GPU::pickPhysicalDevice() {
           .add_required_extension_features(
               vk::PhysicalDeviceScalarBlockLayoutFeatures{}
                   .setScalarBlockLayout(1))
+          .add_required_extension_features(
+              vk::PhysicalDeviceMultiviewFeatures{}.setMultiview(1))
           .select();
 
   VKB_ASSERT(physicalDeviceResult);
@@ -613,6 +619,78 @@ Image GPU::createTexture2D(const uint8_t* data,
   return image;
 }
 
+Image GPU::createF32Cubemap() const {
+  CubemapOptions options{};
+  options.aspect = vk::ImageAspectFlagBits::eColor;
+  options.extent = vk::Extent2D{}.setWidth(shadowSize).setHeight(shadowSize);
+  options.format = vk::Format::eR32Sfloat;
+  options.usage = vk::ImageUsageFlagBits::eColorAttachment;
+
+  return createCubemapTexture(options);
+}
+
+Image GPU::createDepthCubemap() const {
+  CubemapOptions options{};
+  options.aspect = vk::ImageAspectFlagBits::eDepth;
+  options.extent = vk::Extent2D{}.setWidth(shadowSize).setHeight(shadowSize);
+  options.format = vk::Format::eD32Sfloat;
+  options.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment;
+
+  return createCubemapTexture(options);
+}
+
+Image GPU::createCubemapTexture(const CubemapOptions& options) const {
+  Image image{};
+  image.extent = vk::Extent3D{options.extent}.setDepth(1);
+
+  VkImageCreateInfo imageCreateInfo =
+      vk::ImageCreateInfo{}
+          .setImageType(vk::ImageType::e2D)
+          .setFormat(options.format)
+          .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+          .setMipLevels(1)
+          .setArrayLayers(6)
+          .setSamples(vk::SampleCountFlagBits::e1)
+          .setTiling(vk::ImageTiling::eOptimal)
+          .setUsage(
+                    vk::ImageUsageFlagBits::eSampled |
+                    options.usage)
+          .setSharingMode(vk::SharingMode::eExclusive)
+          .setInitialLayout(vk::ImageLayout::eUndefined)
+          .setExtent(image.extent);
+
+  VmaAllocationCreateInfo imageAllocationCreateInfo{};
+  imageAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  imageAllocationCreateInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+
+  VkImage vkImage;
+
+  assert(!vmaCreateImage(allocator, &imageCreateInfo,
+                         &imageAllocationCreateInfo, &vkImage,
+                         &image.allocation, nullptr));
+
+  image.image = vkImage;
+
+  vk::ImageSubresourceRange imageSubresourceRange =
+      vk::ImageSubresourceRange{}
+          .setLayerCount(6)
+          .setAspectMask(options.aspect)
+          .setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0);
+
+  vk::ImageViewCreateInfo imageViewCreateInfo =
+      vk::ImageViewCreateInfo{}
+          .setImage(image.image)
+          .setViewType(vk::ImageViewType::eCube)
+          .setFormat(options.format)
+          .setSubresourceRange(imageSubresourceRange);
+
+  image.view = device.createImageView(imageViewCreateInfo, nullptr);
+
+  return image;
+}
+
 Image GPU::createCubemapTexture(const std::array<uint8_t*, 6>& data,
                                 const vk::Extent2D& extent) {
   Image image{};
@@ -944,7 +1022,8 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
       vk::PipelineRenderingCreateInfo{}
           .setDepthAttachmentFormat(depthAttachmentFormat)
-          .setColorAttachmentCount(0);
+          .setColorAttachmentCount(0)
+          .setViewMask(options.viewMask);
 
   if (options.colorAttachmentCount) {
     pipelineRenderingCreateInfo
@@ -1125,6 +1204,92 @@ void GPU::resetFence() const {
   assert(device.resetFences(1, &fence) == vk::Result::eSuccess);
 }
 
+void GPU::beginShadowCubePass(const Texture& shadowMap) const {
+  vk::ClearValue clearValue = vk::ClearValue{}.setColor(
+      vk::ClearColorValue{}.setFloat32({0.0, 0.0, 0.0, 0.0}));
+
+  vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
+      vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
+
+  vk::RenderingAttachmentInfo depthAttachment =
+      vk::RenderingAttachmentInfo{}
+          .setImageView(depthCubemap.view)
+          .setResolveMode(vk::ResolveModeFlagBits::eNone)
+          .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+          .setLoadOp(vk::AttachmentLoadOp::eClear)
+          .setStoreOp(vk::AttachmentStoreOp::eNone)
+          .setClearValue(depthClearValue);
+
+  vk::RenderingAttachmentInfo colorAttachment =
+      vk::RenderingAttachmentInfo{}
+          .setImageView(shadowMap.image.view)
+          .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+          .setLoadOp(vk::AttachmentLoadOp::eClear)
+          .setStoreOp(vk::AttachmentStoreOp::eStore)
+          .setClearValue(clearValue);
+
+  vk::ImageSubresourceRange depthSubresourceRange =
+      vk::ImageSubresourceRange{}
+          .setLayerCount(6)
+          .setAspectMask(vk::ImageAspectFlagBits::eDepth)
+          .setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0);
+
+  vk::ImageSubresourceRange subresourceRange =
+      vk::ImageSubresourceRange{}
+          .setLayerCount(6)
+          .setAspectMask(vk::ImageAspectFlagBits::eColor)
+          .setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0);
+
+  vk::ImageMemoryBarrier2 depthMemoryBarrier =
+      vk::ImageMemoryBarrier2{}
+          .setImage(depthCubemap.image)
+          .setOldLayout(vk::ImageLayout::eUndefined)
+          .setNewLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
+          .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+          .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                            vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+          .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                           vk::PipelineStageFlagBits2::eLateFragmentTests)
+          .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                           vk::PipelineStageFlagBits2::eLateFragmentTests)
+          .setSubresourceRange(depthSubresourceRange);
+
+  vk::ImageMemoryBarrier2 colorImageBarrier =
+      vk::ImageMemoryBarrier2{}
+          .setImage(shadowMap.image.image)
+          .setOldLayout(vk::ImageLayout::eUndefined)
+          .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+          .setSrcAccessMask(vk::AccessFlagBits2::eNone)
+          .setDstAccessMask(vk::AccessFlagBits2::eNone)
+          .setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+          .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+          .setSubresourceRange(subresourceRange);
+
+  vk::ImageMemoryBarrier2 imageMemoryBarriers[2] = {depthMemoryBarrier, colorImageBarrier};
+
+  vk::DependencyInfo dependencyInfo =
+      vk::DependencyInfo{}
+          .setImageMemoryBarriers(imageMemoryBarriers)
+          .setImageMemoryBarrierCount(2);
+
+  vk::RenderingInfo renderingInfo =
+      vk::RenderingInfo{}
+          .setColorAttachmentCount(0)
+          .setRenderArea(
+              vk::Rect2D{}.setExtent(vk::Extent2D{shadowSize, shadowSize}))
+          .setLayerCount(6)
+          .setViewMask(0b111111)
+		  .setColorAttachments(colorAttachment)
+		  .setPDepthAttachment(&depthAttachment);
+
+  commandBuffer.pipelineBarrier2(dependencyInfo);
+  commandBuffer.beginRendering(renderingInfo);
+}
+
 void GPU::beginShadowPass(const Texture& shadowMap) const {
   vk::ClearValue depthClearValue = vk::ClearValue{}.setDepthStencil(
       vk::ClearDepthStencilValue{}.setDepth(1.0f).setStencil(0));
@@ -1294,7 +1459,7 @@ void GPU::beginMainPass(const uint32_t imageIndex) {
   commandBuffer.beginRendering(renderingInfo);
 }
 
-void GPU::createMultiSampleImage() {
+Image GPU::createMultiSampleImage() {
   Image image{};
   image.extent = vk::Extent3D{vkbSwapchain.extent}.setDepth(1);
 
@@ -1338,14 +1503,16 @@ void GPU::createMultiSampleImage() {
           .setSubresourceRange(imageSubresourceRange);
 
   image.view = device.createImageView(imageViewCreateInfo, nullptr);
-  multisampleImage = image;
+
+  return image;
 }
 
 void GPU::createImages() {
   depthImage = createDepthImage(
       {sampleCount, vk::ImageUsageFlagBits::eDepthStencilAttachment,
        vkbSwapchain.extent});
-  createMultiSampleImage();
+  depthCubemap = createDepthCubemap();
+  multisampleImage = createMultiSampleImage();
 }
 
 void GPU::submit(const uint32_t imageIndex) {
@@ -1402,7 +1569,7 @@ void GPU::createPipelines() {
           .setDescriptorCount(10),
       vk::DescriptorPoolSize{}
           .setType(vk::DescriptorType::eCombinedImageSampler)
-          .setDescriptorCount(300),
+          .setDescriptorCount(400),
       vk::DescriptorPoolSize{}
           .setType(vk::DescriptorType::eStorageBuffer)
           .setDescriptorCount(10),
@@ -1443,6 +1610,11 @@ void GPU::createPipelines() {
                   .setStageFlags(vk::ShaderStageFlagBits::eFragment)
                   .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
                   .setDescriptorCount(100),
+              vk::DescriptorSetLayoutBinding{}
+                  .setBinding(3)
+                  .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+                  .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                  .setDescriptorCount(100),
           },
           {vk::DescriptorSetLayoutBinding{}
                .setBinding(0)
@@ -1477,8 +1649,7 @@ void GPU::createPipelines() {
                .setBinding(0)
                .setDescriptorCount(1)
                .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-               .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)},
-      };
+               .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)}};
 
   std::vector<vk::DescriptorSetLayoutCreateInfo> skyboxDescriptorSets =
       utils::getDescriptorSetLayoutCreateInfo(
@@ -1497,7 +1668,29 @@ void GPU::createPipelines() {
   std::vector<vk::DescriptorSetLayoutCreateInfo> shadowDescriptorSets =
       utils::getDescriptorSetLayoutCreateInfo(
           shadowPassDescriptorSetLayoutBindings);
+
   sets += shadowDescriptorSets.size();
+
+  std::vector<std::vector<vk::DescriptorSetLayoutBinding>>
+      shadowCubePassDescriptorBindings{
+          {
+              vk::DescriptorSetLayoutBinding{}
+                  .setBinding(0)
+                  .setDescriptorCount(1)
+                  .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+                  .setDescriptorType(vk::DescriptorType::eUniformBuffer),
+          },
+          {vk::DescriptorSetLayoutBinding{}
+               .setBinding(0)
+               .setDescriptorCount(1)
+               .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+               .setDescriptorType(vk::DescriptorType::eStorageBuffer)},
+      };
+
+  std::vector<vk::DescriptorSetLayoutCreateInfo> shadowCubesDescriptorSets =
+      utils::getDescriptorSetLayoutCreateInfo(shadowCubePassDescriptorBindings);
+
+  sets += shadowCubesDescriptorSets.size();
 
   vk::DescriptorPoolCreateInfo poolCreateInfo =
       vk::DescriptorPoolCreateInfo{}
@@ -1513,7 +1706,7 @@ void GPU::createPipelines() {
                        loadShader("./shaders/shader.frag.glsl.spv",
                                   vk::ShaderStageFlagBits::eFragment)},
                       mainPassDescriptorSets,
-                      sizeof(MainPassFrameData),
+                      sizeof(MainPassPushConstant),
                       1,
                       0.0,
                       0.0,
@@ -1525,7 +1718,7 @@ void GPU::createPipelines() {
                        loadShader("./shaders/skybox.frag.glsl.spv",
                                   vk::ShaderStageFlagBits::eFragment)},
                       skyboxDescriptorSets,
-                      sizeof(SkyboxPassFrameData),
+                      sizeof(SkyboxPassPushConstant),
                       1,
                       0.0,
                       0.0,
@@ -1535,10 +1728,24 @@ void GPU::createPipelines() {
       createPipeline({{loadShader("./shaders/shadows.vert.glsl.spv",
                                   vk::ShaderStageFlagBits::eVertex)},
                       shadowDescriptorSets,
-                      sizeof(ShadowPassFrameData),
+                      sizeof(ShadowPassPushConstant),
                       0,
                       1.25f,
-                      1.75f});
+                      1.75f,
+                      vk::SampleCountFlagBits::e1});
+
+  shadowCubesPipeline =
+      createPipeline({{loadShader("./shaders/shadow-cubes.vert.glsl.spv",
+                                  vk::ShaderStageFlagBits::eVertex),
+                       loadShader("./shaders/shadow-cubes.frag.glsl.spv",
+                                  vk::ShaderStageFlagBits::eFragment)},
+                      shadowCubesDescriptorSets,
+                      sizeof(ShadowCubePassPushConstant),
+                      0,
+                      0.0,
+                      0.0,
+                      vk::SampleCountFlagBits::e1,
+                      0b111111});
 };
 
 void GPU::beginRecordingCommands() const {

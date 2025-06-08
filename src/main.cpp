@@ -24,59 +24,56 @@ int32_t main() {
   perspective = glm::perspective(
       glm::radians(70.0f),
       static_cast<float>(display.width) / static_cast<float>(display.height),
-      0.5f, 500.0f);
+      0.5f, 800.0f);
 
   perspective[1][1] *= -1;
 
   Transform transform{model, view, perspective};
   config.transform = transform;
 
-  config.assets.push_back("./assets/Sponza/glTF/Sponza.gltf");
-  config.assets.push_back("./assets/DamagedHelmet/glTF/DamagedHelmet.gltf");
-  config.assets.push_back(
-      "./assets/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
+  config.models.push_back("./models/Sponza/glTF/Sponza.gltf");
+  config.models.push_back("./models/DamagedHelmet/glTF/DamagedHelmet.gltf");
+  config.models.push_back(
+      "./models/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
+  config.models.push_back(
+      "./models/CompareMetallic/glTF/CompareMetallic.gltf");
 
-  config.directionalLight.shadows = true;
+  config.directionalLight.shadows = false;
   config.directionalLight.direction =
       glm::normalize(glm::vec3{0.0f, -150.0f, 0.0f});
-  config.directionalLight.ambient = glm::vec3{0.05f};
-  config.directionalLight.diffuse = glm::vec3{0.4f};
-  config.directionalLight.specular = glm::vec3{0.4f};
-
+  config.directionalLight.ambient = glm::vec3{0.01f};
+  config.directionalLight.diffuse = glm::vec3{0.01f};
+  config.directionalLight.specular = glm::vec3{0.01f};
   config.directionalLight.lightSpaceMatrix =
-      glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 10.0f, 400.0f);
+      glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 1.0f, 500.0f);
   config.directionalLight.lightSpaceMatrix[1][1] *= -1;
   config.directionalLight.lightSpaceMatrix *=
       glm::lookAt(glm::vec3{0.1f, 350.0f, 0.1f}, glm::vec3{0.0f},
                   glm::vec3{0.0f, 1.0f, 0.0f});
 
   PointLight pointLight{};
-  pointLight.position = glm::vec3{0.0f, 100.0f, -100.0f};
-  pointLight.ambient = glm::vec3{0.01f};
-  pointLight.diffuse = glm::vec3{0.6f};
-  pointLight.specular = glm::vec3{0.6f};
+  pointLight.position = glm::vec3{0.0f, 20.0f, -20.0f};
+  pointLight.ambient = glm::vec3{0.05f};
+  pointLight.diffuse = glm::vec3{1.0f};
+  pointLight.specular = glm::vec3{1.0f};
   pointLight.constant = 1.0f;
-  pointLight.linear = 0.01f;
-  pointLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(90.0f), 1.0f, 1.0f, 500.0f);
-  pointLight.lightSpaceMatrix[1][1] *= -1;
-  pointLight.lightSpaceMatrix *= glm::lookAt(
-      pointLight.position, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
-  // config.pointLights.push_back(pointLight);
+  pointLight.linear = 0.00001;
+  pointLight.shadows = false;
+  config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
-  spotLight.position = glm::vec3{0.0f, 10.0f, 150.0f};
-  spotLight.direction = glm::vec3{0.0f, 0.0f, -1.0f};
+  spotLight.position = glm::vec3{0.0f, 60.0f, 0.0f};
+  spotLight.direction = glm::vec3{0.0f, -1.0f, 0.0f};
   spotLight.cutOff = glm::cos(glm::radians(10.0f));
-  spotLight.outerCutOff = glm::cos(glm::radians(30.0f));
+  spotLight.outerCutOff = glm::cos(glm::radians(20.0f));
   spotLight.ambient = glm::vec3{0.01f};
-  spotLight.diffuse = glm::vec3{0.6f};
-  spotLight.specular = glm::vec3{0.6f};
+  spotLight.diffuse = glm::vec3{0.5f};
+  spotLight.specular = glm::vec3{0.5f};
   spotLight.constant = 1.0f;
-  spotLight.linear = 0.001f;
-  spotLight.shadows = true;
+  spotLight.linear = 0.0;
+  spotLight.shadows = false;
   spotLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(80.0f), 1.0f, 1.0f, 500.0f);
+      glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 500.0f);
   spotLight.lightSpaceMatrix[1][1] *= -1;
   spotLight.lightSpaceMatrix *= glm::lookAt(spotLight.position, glm::vec3{0.0},
                                             glm::vec3{0.0f, 1.0f, 0.0f});
@@ -87,7 +84,7 @@ int32_t main() {
                   glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f),
                               glm::vec3{0.0f, 1.0f, 0.0f}) *
                   glm::scale(glm::mat4{1.0f}, glm::vec3{0.1f});
-  sponza.assetIdx = 1;
+  sponza.modelIdx = 1;
 
   Entity helmet{};
   helmet.matrix =
@@ -95,20 +92,20 @@ int32_t main() {
       glm::rotate(glm::mat4{1.0f}, glm::radians(90.0f),
                   glm::vec3{1.0f, 0.0f, 0.0f}) *
       glm::scale(glm::mat4{1.0f}, glm::vec3{4.0f});
-  helmet.assetIdx = 2;
+  helmet.modelIdx = 2;
 
   Entity window{};
   window.matrix =
       glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 15.0f, -5.0f}) *
       glm::scale(glm::mat4{1.0f}, glm::vec3{20.0f});
-  window.assetIdx = 3;
+  window.modelIdx = 3;
 
   Entity window2{};
   window2.matrix =
       glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 15.0f, 25.0f}) *
       glm::scale(glm::mat4{1.0f}, glm::vec3{20.0f});
-  window2.assetIdx = 3;
-
+  window2.modelIdx = 3;
+  
   config.entities.push_back(sponza);
   config.entities.push_back(helmet);
   config.entities.push_back(window);

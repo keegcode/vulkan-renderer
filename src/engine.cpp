@@ -1,4 +1,5 @@
 #include "engine.hpp"
+#include "utils.hpp"
 
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_timer.h>
@@ -17,12 +18,9 @@
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
-#include <glm/ext/matrix_clip_space.hpp>
-#include <glm/geometric.hpp>
-#include <glm/gtx/norm.hpp>
-#include <glm/matrix.hpp>
 #include <thread>
 #include <vector>
+#include <iostream>
 
 #include <glm/common.hpp>
 #include <glm/detail/qualifier.hpp>
@@ -63,33 +61,14 @@ void Engine::drawFrame(uint64_t deltaTime) {
 
   gpu.beginRecordingCommands();
 
-  transform.model = transform.model;
-  transform.view =
-      glm::lookAt(camera.position, camera.position + camera.front, camera.up);
-  transform.projection = transform.projection;
-
-  vmaCopyMemoryToAllocation(gpu.allocator, &transform,
-                            transformUniform.allocation, 0, sizeof(Transform));
   if (!shadowsGenerated) {
-    ShadowPassFrameData shadowPassFrameData{};
-    shadowPassFrameData.model = transform.model;
-    shadowPassFrameData.lightSpaceMatrix = directionalLight.lightSpaceMatrix;
+    ShadowPassPushConstant shadowPassPushConstant{};
+    shadowPassPushConstant.model = transform.model;
+    shadowPassPushConstant.projection = directionalLight.lightSpaceMatrix;
 
     if (directionalLight.shadows) {
       gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
-      drawShadows(shadowPassFrameData);
-      gpu.commandBuffer.endRendering();
-    }
-
-    for (const PointLight& pointLight : pointLights) {
-      if (!pointLight.shadows) {
-        continue;
-      }
-
-      gpu.beginShadowPass(shadowMaps[pointLight.shadowMapIdx]);
-      shadowPassFrameData.model = transform.model;
-      shadowPassFrameData.lightSpaceMatrix = pointLight.lightSpaceMatrix;
-      drawShadows(shadowPassFrameData);
+      drawShadows(shadowPassPushConstant);
       gpu.commandBuffer.endRendering();
     }
 
@@ -97,32 +76,73 @@ void Engine::drawFrame(uint64_t deltaTime) {
       if (!spotLight.shadows) {
         continue;
       }
+      shadowPassPushConstant.projection = spotLight.lightSpaceMatrix;
 
       gpu.beginShadowPass(shadowMaps[spotLight.shadowMapIdx]);
-      shadowPassFrameData.model = transform.model;
-      shadowPassFrameData.lightSpaceMatrix = spotLight.lightSpaceMatrix;
-      drawShadows(shadowPassFrameData);
+      drawShadows(shadowPassPushConstant);
       gpu.commandBuffer.endRendering();
     }
 
-    shadowsGenerated = true;
+    ShadowCubeTransform shadowCubeTransform{};
+    shadowCubeTransform.model = transform.model;
+
+    ShadowCubePassPushConstant shadowCubePassPushConstant{};
+
+    for (const PointLight& pointLight : pointLights) {
+      if (!pointLight.shadows) {
+        continue;
+      }
+
+      shadowCubePassPushConstant.lightPos = pointLight.position;
+
+      for (uint32_t i = 0; i < 6; i++) {
+        shadowCubeTransform.projection[i] = shadowProjection;
+        shadowCubeTransform.projection[i][1][1] *= -1;
+        shadowCubeTransform.projection[i] *= glm::lookAt(
+            pointLight.position, pointLight.position + shadowCubeSides[i].first,
+            shadowCubeSides[i].second);
+      }
+
+      assert(!vmaCopyMemoryToAllocation(gpu.allocator, &shadowCubeTransform,
+                                        shadowCubeTransformUniform.allocation,
+                                        0, sizeof(ShadowCubeTransform)));
+
+      gpu.beginShadowCubePass(shadowCubes[pointLight.shadowMapIdx]);
+      drawShadowCubes(shadowCubePassPushConstant);
+      gpu.commandBuffer.endRendering();
+    }
+
+    shadowsGenerated = false;
   }
+
+  transform.model = transform.model;
+  transform.view =
+      glm::lookAt(camera.position, camera.position + camera.front, camera.up);
+  transform.projection = transform.projection;
+
+  assert(!vmaCopyMemoryToAllocation(gpu.allocator, &transform,
+                                    transformUniform.allocation, 0,
+                                    sizeof(Transform)));
+
+  assert(!vmaCopyMemoryToAllocation(gpu.allocator, entities.data(),
+                                    entitiesBuffer.allocation, 0,
+                                    sizeof(Entity) * entities.size()));
 
   gpu.beginMainPass(static_cast<uint32_t>(imageIndex));
 
-  MainPassFrameData mainPassFrameData{};
-  mainPassFrameData.spotLights = static_cast<uint32_t>(spotLights.size());
-  mainPassFrameData.pointLights = static_cast<uint32_t>(pointLights.size());
-  mainPassFrameData.cameraPos = camera.position;
+  MainPassPushConstant mainPassPushConstant{};
+  mainPassPushConstant.spotLights = static_cast<uint32_t>(spotLights.size());
+  mainPassPushConstant.pointLights = static_cast<uint32_t>(pointLights.size());
+  mainPassPushConstant.cameraPos = camera.position;
 
-  drawEntities(mainPassFrameData);
+  drawEntities(mainPassPushConstant);
 
-  SkyboxPassFrameData skyboxFrameData{};
-  skyboxFrameData.matrix = transform.projection *
-                           glm::mat4{glm::mat3{transform.view}} *
-                           transform.model;
+  SkyboxPassPushConstant skyboxPushConstant{};
+  skyboxPushConstant.matrix = transform.projection *
+                              glm::mat4{glm::mat3{transform.view}} *
+                              transform.model;
 
-  drawSkybox(skyboxFrameData);
+  drawSkybox(skyboxPushConstant);
 
   gpu.commandBuffer.endRendering();
   gpu.commandBuffer.end();
@@ -130,7 +150,7 @@ void Engine::drawFrame(uint64_t deltaTime) {
   gpu.submit(static_cast<uint32_t>(imageIndex));
 };
 
-void Engine::drawSkybox(const SkyboxPassFrameData& frameData) {
+void Engine::drawSkybox(const SkyboxPassPushConstant& pushConstant) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.skyboxPipeline.pipeline);
 
@@ -141,13 +161,13 @@ void Engine::drawSkybox(const SkyboxPassFrameData& frameData) {
 
   gpu.commandBuffer.setViewport(0, 1, &gpu.viewport);
   gpu.commandBuffer.setScissor(0, 1, &gpu.scissors);
-
   gpu.commandBuffer.setDepthWriteEnable(0);
+  gpu.commandBuffer.setCullMode(vk::CullModeFlagBits::eFront);
 
   gpu.commandBuffer.pushConstants(
       gpu.skyboxPipeline.layout,
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
-      sizeof(SkyboxPassFrameData), &frameData);
+      sizeof(SkyboxPassPushConstant), &pushConstant);
 
   std::array<vk::DeviceSize, 1> offsets{0};
 
@@ -247,6 +267,10 @@ void Engine::destroy() {
     gpu.destroyImage(texture.image);
   }
 
+  for (Texture& texture : shadowCubes) {
+    gpu.destroyImage(texture.image);
+  }
+
   gpu.destroySampler(shadowMapSampler);
 
   destroyTexture(skybox);
@@ -257,6 +281,7 @@ void Engine::destroy() {
   }
 
   gpu.destroyBuffer(transformUniform);
+  gpu.destroyBuffer(shadowCubeTransformUniform);
   gpu.destroyBuffer(directionalLightUniform);
   gpu.destroyBuffer(skylightUniform);
   gpu.destroyBuffer(spotLightsBuffer);
@@ -299,8 +324,8 @@ void Engine::loadConfig(const EngineConfig& config) {
 
   entities = config.entities;
 
-  for (const std::filesystem::path& path : config.assets) {
-    loadAsset(path);
+  for (const std::filesystem::path& path : config.models) {
+    loadModel(path);
   }
 }
 
@@ -325,7 +350,7 @@ void Engine::loadStatic() {
           .setAddressModeU(vk::SamplerAddressMode::eClampToBorder)
           .setAddressModeV(vk::SamplerAddressMode::eClampToBorder)
           .setAddressModeW(vk::SamplerAddressMode::eClampToBorder)
-          .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+          .setBorderColor(vk::BorderColor::eFloatOpaqueBlack)
           .setCompareEnable(1)
           .setCompareOp(vk::CompareOp::eLess)
           .setAnisotropyEnable(1)
@@ -350,17 +375,12 @@ void Engine::loadStatic() {
   textures.push_back(normal);
 
   Material defaultMaterial{};
-  defaultMaterial.emissive = glm::vec3{0.0f};
-  defaultMaterial.specular = glm::vec3{1.0f};
-  defaultMaterial.shininess = 32.0;
-  defaultMaterial.color = glm::vec3{0.5f};
-
   materials.push_back(defaultMaterial);
 
-  loadAsset("./assets/Cube/glTF/Cube.gltf");
+  loadModel("./models/Cube/glTF/Cube.gltf");
 };
 
-void Engine::loadAsset(const std::filesystem::path& path) {
+void Engine::loadModel(const std::filesystem::path& path) {
   Assimp::Importer importer{};
 
   const aiScene* scene = importer.ReadFile(
@@ -370,13 +390,13 @@ void Engine::loadAsset(const std::filesystem::path& path) {
 
   assert(scene != nullptr);
 
-  Asset asset{};
-  asset.path = path;
+  Model model{};
+  model.path = path;
 
   std::vector<TextureCreateInfo> createInfos;
   std::unordered_map<std::string, ImageData> cache;
 
-  processNode(asset, scene, scene->mRootNode, createInfos);
+  processNode(model, scene, scene->mRootNode, createInfos);
 
   std::vector<std::thread> threads;
 
@@ -404,7 +424,7 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   for (const TextureCreateInfo& createInfo : createInfos) {
     ImageData image = cache[createInfo.path.string()];
     Texture& texture = textures[createInfo.textureIdx];
-    vk::Format format = texture.type == TextureType::Normal
+    vk::Format format = texture.type == TextureType::Normal || texture.type == TextureType::MetallicRoughness
                             ? vk::Format::eR8G8B8A8Unorm
                             : vk::Format::eR8G8B8A8Srgb;
     texture.image = gpu.createTexture2D(
@@ -416,10 +436,10 @@ void Engine::loadAsset(const std::filesystem::path& path) {
   }
 
   importer.FreeScene();
-  assets.push_back(asset);
+  models.push_back(model);
 }
 
-void Engine::loadMesh(Asset& asset,
+void Engine::loadMesh(Model& model,
                       const aiScene* scene,
                       const aiMesh* assimpMesh,
                       std::vector<TextureCreateInfo>& createInfos) {
@@ -495,14 +515,14 @@ void Engine::loadMesh(Asset& asset,
 
   mesh.indicesCount = static_cast<uint32_t>(indices.size());
 
-  loadMaterial(asset, mesh, scene->mMaterials[assimpMesh->mMaterialIndex],
+  loadMaterial(model, mesh, scene->mMaterials[assimpMesh->mMaterialIndex],
                createInfos);
 
-  asset.meshes.push_back(static_cast<uint32_t>(meshes.size()));
+  model.meshes.push_back(static_cast<uint32_t>(meshes.size()));
   meshes.push_back(mesh);
 }
 
-void Engine::loadMaterial(Asset& asset,
+void Engine::loadMaterial(Model& model,
                           Mesh& mesh,
                           const aiMaterial* assimpMaterial,
                           std::vector<TextureCreateInfo>& createInfos) {
@@ -515,22 +535,15 @@ void Engine::loadMaterial(Asset& asset,
         glm::vec3{emissiveColor.r, emissiveColor.g, emissiveColor.b};
   };
 
-  aiColor3D specularColor{1.0, 1.0, 1.0};
-  if (assimpMaterial->Get(AI_MATKEY_COLOR_SPECULAR, specularColor) ==
-      aiReturn_SUCCESS) {
-    material.specular =
-        glm::vec3{specularColor.r, specularColor.g, specularColor.b};
-  };
-
   aiColor3D diffuseColor{1.0, 1.0, 1.0};
   if (assimpMaterial->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) ==
       aiReturn_SUCCESS) {
     material.color = glm::vec3{diffuseColor.r, diffuseColor.g, diffuseColor.b};
   };
 
-  float shininess = 32.0;
-  if (assimpMaterial->Get(AI_MATKEY_SHININESS, shininess) == aiReturn_SUCCESS) {
-    material.shininess = std::clamp(shininess, 4.0f, 32.0f);
+  float metallicFactor = 0.0;
+  if (assimpMaterial->Get(AI_MATKEY_METALLIC_FACTOR, metallicFactor) == aiReturn_SUCCESS) {
+    material.metallic = metallicFactor;
   };
 
   bool twoSided = false;
@@ -566,60 +579,61 @@ void Engine::loadMaterial(Asset& asset,
     material.roughness = roughness;
   };
 
-  if (asset.path.filename() == "DamagedHelmet.gltf") {
-    material.roughness = 0.5f;
-  }
-
   if (assimpMaterial->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
     auto [diffuse, diffuseSampler] =
         loadTexture(assimpMaterial, aiTextureType_DIFFUSE);
     material.diffuseTextureIdx = static_cast<uint32_t>(textures.size());
-    createInfos.push_back({asset.path.parent_path().append(diffuse.path),
+    createInfos.push_back({model.path.parent_path().append(diffuse.path),
                            diffuseSampler, material.diffuseTextureIdx});
     textures.push_back(diffuse);
   }
 
-  if (assimpMaterial->GetTextureCount(aiTextureType_SPECULAR) > 0) {
-    auto [specular, specularSampler] =
-        loadTexture(assimpMaterial, aiTextureType_SPECULAR);
-    material.specularTextureIdx = static_cast<uint32_t>(textures.size());
-    createInfos.push_back({asset.path.parent_path().append(specular.path),
-                           specularSampler, material.specularTextureIdx});
-    textures.push_back(specular);
+  if (assimpMaterial->GetTextureCount(aiTextureType_UNKNOWN) > 0) {
+    auto [metallicRoughness, metallicRoughnessSampler] =
+        loadTexture(assimpMaterial, aiTextureType_UNKNOWN);
+    material.metallicRoughnessTextureIdx = static_cast<uint32_t>(textures.size());
+    createInfos.push_back({model.path.parent_path().append(metallicRoughness.path),
+                           metallicRoughnessSampler, material.metallicRoughnessTextureIdx});
+    textures.push_back(metallicRoughness);
   }
 
   if (assimpMaterial->GetTextureCount(aiTextureType_NORMALS) > 0) {
     auto [normal, normalSampler] =
         loadTexture(assimpMaterial, aiTextureType_NORMALS);
     material.normalTextureIdx = static_cast<uint32_t>(textures.size());
-    createInfos.push_back({asset.path.parent_path().append(normal.path),
+    createInfos.push_back({model.path.parent_path().append(normal.path),
                            normalSampler, material.normalTextureIdx});
     textures.push_back(normal);
   }
 
-  if (assimpMaterial->GetTextureCount(aiTextureType_HEIGHT) > 0) {
-    auto [height, heightSampler] =
-        loadTexture(assimpMaterial, aiTextureType_HEIGHT);
-    material.heightTextureIdx = static_cast<uint32_t>(textures.size());
-    createInfos.push_back({asset.path.parent_path().append(height.path),
-                           heightSampler, material.heightTextureIdx});
-    textures.push_back(height);
+  if (assimpMaterial->GetTextureCount(aiTextureType_EMISSIVE) > 0) {
+    auto [emissive, emissiveSampler] =
+        loadTexture(assimpMaterial, aiTextureType_EMISSIVE);
+    material.emissiveTextureIdx = static_cast<uint32_t>(textures.size());
+    createInfos.push_back({model.path.parent_path().append(emissive.path),
+                           emissiveSampler, material.emissiveTextureIdx});
+    textures.push_back(emissive);
   }
 
   mesh.materialIdx = static_cast<uint32_t>(materials.size());
   materials.push_back(material);
 }
 
-void Engine::processNode(Asset& asset,
+void Engine::processNode(Model& model,
                          const aiScene* scene,
                          const aiNode* node,
                          std::vector<TextureCreateInfo>& createInfos) {
   for (uint32_t i = 0; i < node->mNumMeshes; i++) {
-    loadMesh(asset, scene, scene->mMeshes[node->mMeshes[i]], createInfos);
+    loadMesh(model, scene, scene->mMeshes[node->mMeshes[i]], createInfos);
   }
 
   for (uint32_t i = 0; i < node->mNumChildren; i++) {
-    processNode(asset, scene, node->mChildren[i], createInfos);
+	Entity entity{};
+	entity.modelIdx = models.size();
+	entity.matrix = utils::aiMatrix4x4ToGlm(&node->mChildren[i]->mTransformation);
+	entities.push_back(entity);
+
+    processNode(model, scene, node->mChildren[i], createInfos);
   }
 };
 
@@ -669,9 +683,9 @@ void Engine::prepareDescriptors() {
 
   for (PointLight& light : pointLights) {
     if (light.shadows) {
-      light.shadowMapIdx = shadowMaps.size();
-      shadowMap.image = gpu.createShadowMap();
-      shadowMaps.push_back(shadowMap);
+      light.shadowMapIdx = shadowCubes.size();
+      shadowMap.image = gpu.createF32Cubemap();
+      shadowCubes.push_back(shadowMap);
     }
   }
 
@@ -685,6 +699,9 @@ void Engine::prepareDescriptors() {
 
   transformUniform = gpu.createBuffer(&transform, sizeof(Transform),
                                       vk::BufferUsageFlagBits::eUniformBuffer);
+
+  shadowCubeTransformUniform = gpu.createBuffer(
+      sizeof(ShadowCubeTransform), vk::BufferUsageFlagBits::eUniformBuffer);
 
   directionalLightUniform =
       gpu.createBuffer(&directionalLight, sizeof(DirectionalLight),
@@ -743,11 +760,16 @@ void Engine::prepareDescriptors() {
 
   gpu.setStorageBufferDescriptorSet(entitiesBuffer,
                                     gpu.mainPipeline.descriptorSets[1], 0);
+  gpu.setStorageBufferDescriptorSet(materialsBuffer,
+                                    gpu.mainPipeline.descriptorSets[1], 1);
+
   gpu.setStorageBufferDescriptorSet(entitiesBuffer,
                                     gpu.shadowsPipeline.descriptorSets[0], 0);
 
-  gpu.setStorageBufferDescriptorSet(materialsBuffer,
-                                    gpu.mainPipeline.descriptorSets[1], 1);
+  gpu.setUniformDescriptorSet(shadowCubeTransformUniform,
+                              gpu.shadowCubesPipeline.descriptorSets[0], 0);
+  gpu.setStorageBufferDescriptorSet(
+      entitiesBuffer, gpu.shadowCubesPipeline.descriptorSets[1], 0);
 
   gpu.setTextureArrayDescriptorSet(textures, gpu.mainPipeline.descriptorSets[2],
                                    0);
@@ -759,6 +781,12 @@ void Engine::prepareDescriptors() {
 
   gpu.setTextureArrayDescriptorSet(std::vector{skybox},
                                    gpu.mainPipeline.descriptorSets[2], 2);
+
+  if (shadowCubes.size()) {
+    gpu.setTextureArrayDescriptorSet(shadowCubes,
+                                     gpu.mainPipeline.descriptorSets[2], 3);
+  }
+
   gpu.setTextureDescriptorSet(skybox, gpu.skyboxPipeline.descriptorSets[0], 0);
 }
 
@@ -787,7 +815,58 @@ void Engine::loadSkybox() {
   skybox = tex;
 }
 
-void Engine::drawShadows(const ShadowPassFrameData& frameData) {
+void Engine::drawShadowCubes(const ShadowCubePassPushConstant& pushConstant) {
+  gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                 gpu.shadowCubesPipeline.pipeline);
+
+  gpu.commandBuffer.bindDescriptorSets(
+      vk::PipelineBindPoint::eGraphics, gpu.shadowCubesPipeline.layout, 0,
+      gpu.shadowCubesPipeline.descriptorSets.size(),
+      gpu.shadowCubesPipeline.descriptorSets.data(), 0, nullptr);
+
+  std::vector<vk::DeviceSize> offsets = {0};
+
+  vk::Extent2D extent =
+      vk::Extent2D{}.setWidth(gpu.shadowSize).setHeight(gpu.shadowSize);
+
+  vk::Viewport viewport = vk::Viewport{}
+                              .setWidth(static_cast<float>(extent.width))
+                              .setHeight(static_cast<float>(extent.height))
+                              .setMaxDepth(1.0)
+                              .setMinDepth(0.0)
+                              .setX(0.0)
+                              .setY(0.0);
+
+  vk::Rect2D scissors = vk::Rect2D{}.setExtent(
+      vk::Extent2D{}.setHeight(extent.height).setWidth(extent.width));
+
+  gpu.commandBuffer.setViewport(0, 1, &viewport);
+  gpu.commandBuffer.setScissor(0, 1, &scissors);
+  gpu.commandBuffer.setCullMode(vk::CullModeFlagBits::eNone);
+  gpu.commandBuffer.setDepthWriteEnable(1);
+
+  vk::Bool32 enables[1] = {false};
+  gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
+
+  ShadowCubePassPushConstant pc = pushConstant;
+
+  for (uint32_t i = 0; i < entities.size(); i++) {
+    Entity& entity = entities[i];
+    Model& model = models[entity.modelIdx];
+
+    pc.entityId = i;
+    gpu.commandBuffer.pushConstants(
+        gpu.shadowCubesPipeline.layout,
+        vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+        0, sizeof(ShadowCubePassPushConstant), &pc);
+
+    for (const uint32_t meshIdx : model.meshes) {
+      drawEntityShadow(meshIdx);
+    }
+  }
+}
+
+void Engine::drawShadows(const ShadowPassPushConstant& pushConstant) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.shadowsPipeline.pipeline);
 
@@ -820,24 +899,24 @@ void Engine::drawShadows(const ShadowPassFrameData& frameData) {
   vk::Bool32 enables[1] = {false};
   gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
 
-  ShadowPassFrameData data = frameData;
+  ShadowPassPushConstant data = pushConstant;
 
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
-    Asset& asset = assets[entity.assetIdx];
+    Model& model = models[entity.modelIdx];
 
     data.entityId = i;
     gpu.commandBuffer.pushConstants(gpu.shadowsPipeline.layout,
                                     vk::ShaderStageFlagBits::eVertex, 0,
-                                    sizeof(ShadowPassFrameData), &data);
+                                    sizeof(ShadowPassPushConstant), &data);
 
-    for (const uint32_t meshIdx : asset.meshes) {
+    for (const uint32_t meshIdx : model.meshes) {
       drawEntityShadow(meshIdx);
     }
   }
 }
 
-void Engine::drawEntities(const MainPassFrameData& frameData) {
+void Engine::drawEntities(const MainPassPushConstant& pushConstant) {
   gpu.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                  gpu.mainPipeline.pipeline);
 
@@ -857,9 +936,9 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
 
   for (uint32_t i = 0; i < entities.size(); i++) {
     Entity& entity = entities[i];
-    Asset& asset = assets[entity.assetIdx];
+    Model& model = models[entity.modelIdx];
 
-    for (const uint32_t meshIdx : asset.meshes) {
+    for (const uint32_t meshIdx : model.meshes) {
       Mesh& mesh = meshes[meshIdx];
       Material& material = materials[mesh.materialIdx];
 
@@ -877,7 +956,7 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
   vk::Bool32 enables[1] = {false};
   gpu.commandBuffer.setColorBlendEnableEXT(0, 1, enables, gpu.dld);
 
-  MainPassFrameData data = frameData;
+  MainPassPushConstant data = pushConstant;
 
   for (const auto& [entityIdx, meshIdx] : opaque) {
     data.entityId = entityIdx;
@@ -886,7 +965,7 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
     gpu.commandBuffer.pushConstants(
         gpu.mainPipeline.layout,
         vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
-        0, sizeof(MainPassFrameData), &data);
+        0, sizeof(MainPassPushConstant), &data);
 
     drawEntity(meshIdx);
   }
@@ -905,7 +984,7 @@ void Engine::drawEntities(const MainPassFrameData& frameData) {
     gpu.commandBuffer.pushConstants(
         gpu.mainPipeline.layout,
         vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
-        0, sizeof(MainPassFrameData), &data);
+        0, sizeof(MainPassPushConstant), &data);
 
     drawEntity(meshIdx);
   }
@@ -1049,17 +1128,17 @@ std::pair<Texture, AssimpSampler> Engine::loadTexture(
     case aiTextureType_DIFFUSE:
       texture.type = TextureType::BaseColor;
       break;
-    case aiTextureType_SPECULAR:
-      texture.type = TextureType::Specular;
-      break;
     case aiTextureType_NORMALS:
       texture.type = TextureType::Normal;
       break;
-    case aiTextureType_HEIGHT:
-      texture.type = TextureType::Height;
+    case aiTextureType_EMISSIVE:
+      texture.type = TextureType::Emissive;
+      break;
+    case aiTextureType_UNKNOWN:
+      texture.type = TextureType::MetallicRoughness;
       break;
     default:
-      texture.type = TextureType::BaseColor;
+      assert(false);
       break;
   }
 

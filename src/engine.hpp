@@ -6,6 +6,10 @@
 #include <assimp/scene.h>
 #include <cstdint>
 #include <filesystem>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/geometric.hpp>
+#include <glm/gtx/norm.hpp>
+#include <glm/matrix.hpp>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -17,10 +21,46 @@
 const std::array<std::string, 6> CUBEMAP_FILES{"right",  "left",  "top",
                                                "bottom", "front", "back"};
 
+const glm::mat4 shadowProjection =
+    glm::perspective(glm::radians(90.0f), 1.0f, 0.5f, 800.0f);
+
+const std::vector<std::pair<glm::vec3, glm::vec3>> shadowCubeSides{
+    {
+        glm::vec3{1.0, 0.0, 0.0},
+        glm::vec3{0.0, 1.0f, 0.0},
+    },
+    {
+        glm::vec3{-1.0, 0.0, 0.0},
+        glm::vec3{0.0, 1.0f, 0.0},
+    },
+    {
+        glm::vec3{0.0, 1.0, 0.0},
+        glm::vec3{0.0, 0.0f, 1.0f},
+    },
+    {
+        glm::vec3{0.0, -1.0, 0.0},
+        glm::vec3{0.0, 0.0f, 1.0},
+    },
+    {
+        glm::vec3{0.0, 0.0, 1.0f},
+        glm::vec3{0.0, 1.0f, 0.0},
+    },
+    {
+        glm::vec3{0.0, 0.0, -1.0f},
+        glm::vec3{0.0, 1.0f, 0.0},
+    },
+};
+
+
 struct Transform {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 projection;
+};
+
+struct ShadowCubeTransform {
+  glm::mat4 model;
+  glm::mat4 projection[6];
 };
 
 enum class CameraMode { Fixed, Move };
@@ -50,17 +90,16 @@ struct Mesh {
 enum class AlphaMode { Opaque, Blend, Mask };
 
 struct Material {
-  glm::vec3 specular = glm::vec3{1.0f};
-  float shininess = 32.0f;
+  glm::vec3 color = glm::vec3{1.0f};
   glm::vec3 emissive = glm::vec3{0.0f};
   float alphaCutoff = 0.001f;
-  glm::vec3 color = glm::vec3{1.0f};
   float transmissionFactor = 0.0f;
   float roughness = 1.0f;
+  float metallic = 0.0f;
   uint32_t normalTextureIdx = 1;
   uint32_t diffuseTextureIdx = 0;
-  uint32_t specularTextureIdx = 0;
-  uint32_t heightTextureIdx = 0;
+  uint32_t metallicRoughnessTextureIdx = 0;
+  uint32_t emissiveTextureIdx = 0;
   vk::CullModeFlagBits cullMode = vk::CullModeFlagBits::eBack;
   AlphaMode alphaMode = AlphaMode::Opaque;
 };
@@ -88,8 +127,8 @@ struct PointLight {
   glm::vec3 diffuse;
   glm::vec3 specular;
   uint32_t shadowMapIdx;
-  glm::mat4 lightSpaceMatrix;
   bool shadows;
+  float farPlane = 300.0f;
 };
 
 struct DirectionalLight {
@@ -107,14 +146,14 @@ struct Skylight {
   uint32_t cubemapIdx = 0;
 };
 
-struct Asset {
+struct Model {
   std::vector<uint32_t> meshes;
   std::filesystem::path path;
 };
 
 struct Entity {
   glm::mat4 matrix = glm::mat4{1.0f};
-  uint32_t assetIdx = 0;
+  uint32_t modelIdx = 0;
 };
 
 struct EngineConfig {
@@ -124,7 +163,7 @@ struct EngineConfig {
   std::vector<PointLight> pointLights;
   std::vector<SpotLight> spotLights;
   std::vector<Entity> entities;
-  std::vector<std::filesystem::path> assets;
+  std::vector<std::filesystem::path> models;
 };
 
 enum class GLTFMagFilter { Nearest = 9728, Linear = 9729 };
@@ -169,7 +208,8 @@ class Engine {
   std::vector<Material> materials;
   std::vector<Texture> textures;
   std::vector<Texture> shadowMaps;
-  std::vector<Asset> assets;
+  std::vector<Texture> shadowCubes;
+  std::vector<Model> models;
   std::vector<Mesh> meshes;
 
   vk::Sampler shadowMapSampler;
@@ -180,6 +220,7 @@ class Engine {
   std::vector<SpotLight> spotLights;
 
   Buffer transformUniform;
+  Buffer shadowCubeTransformUniform;
   Buffer directionalLightUniform;
   Buffer skylightUniform;
   Buffer pointLightsBuffer;
@@ -195,7 +236,7 @@ class Engine {
   Engine(const Display& display, const GPU& gpu, const EngineConfig& config);
 
   void drawFrame(uint64_t deltaTime);
-  void drawSkybox(const SkyboxPassFrameData& data);
+  void drawSkybox(const SkyboxPassPushConstant& data);
   void processInput(uint64_t deltaTime);
   void destroyTexture(const Texture& texture);
   void destroy();
@@ -209,16 +250,16 @@ class Engine {
   void loadStatic();
   void loadConfig(const EngineConfig& state);
 
-  void loadAsset(const std::filesystem::path& path);
-  void processNode(Asset& asset,
+  void loadModel(const std::filesystem::path& path);
+  void processNode(Model& model,
                    const aiScene* scene,
                    const aiNode* node,
                    std::vector<TextureCreateInfo>& tasks);
-  void loadMesh(Asset& asset,
+  void loadMesh(Model& model,
                 const aiScene* scene,
                 const aiMesh* mesh,
                 std::vector<TextureCreateInfo>& tasks);
-  void loadMaterial(Asset& asset,
+  void loadMaterial(Model& model,
                     Mesh& mesh,
                     const aiMaterial* assimpMaterial,
                     std::vector<TextureCreateInfo>& tasks);
@@ -229,12 +270,11 @@ class Engine {
                   vk::Format format = vk::Format::eR8G8B8A8Srgb);
   Image loadCubemap(const std::string& type);
 
-  Texture createShadowMap();
-
   void prepareDescriptors();
   void loadSkybox();
-  void drawShadows(const ShadowPassFrameData& frameData);
-  void drawEntities(const MainPassFrameData& frameData);
+  void drawShadows(const ShadowPassPushConstant& pushConstant);
+  void drawShadowCubes(const ShadowCubePassPushConstant& pushConstant);
+  void drawEntities(const MainPassPushConstant& pushConstant);
   void drawEntity(const uint32_t meshIdx);
   void drawEntityShadow(const uint32_t meshIdx);
   void drawMesh(const uint32_t meshIdx);

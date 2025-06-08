@@ -9,13 +9,13 @@ layout(location = 4) in vec4 inTangent;
 
 layout(location = 0) out vec3 outTexCoord;
 
-layout(scalar, push_constant) uniform FrameData {
+layout(scalar, push_constant) uniform PushConstant {
   mat4 matrix;
 }
-frameData;
+pushConstant;
 
 void main() {
-  vec4 pos = (frameData.matrix * vec4(inPosition, 1.0)).xyww;
+  vec4 pos = (pushConstant.matrix * vec4(inPosition, 1.0)).xyww;
   outTexCoord = inPosition;
   gl_Position = pos;
 }
