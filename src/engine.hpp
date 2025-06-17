@@ -51,7 +51,6 @@ const std::vector<std::pair<glm::vec3, glm::vec3>> shadowCubeSides{
     },
 };
 
-
 struct Transform {
   glm::mat4 model;
   glm::mat4 view;
@@ -116,7 +115,7 @@ struct SpotLight {
   float outerCutOff;
   uint32_t shadowMapIdx;
   glm::mat4 lightSpaceMatrix;
-  bool shadows;
+  bool shadowFactor = 1.0f;
 };
 
 struct PointLight {
@@ -127,7 +126,7 @@ struct PointLight {
   glm::vec3 diffuse;
   glm::vec3 specular;
   uint32_t shadowMapIdx;
-  bool shadows;
+  float shadowFactor = 1.0f;
   float farPlane = 300.0f;
 };
 
@@ -138,7 +137,7 @@ struct DirectionalLight {
   glm::vec3 specular;
   uint32_t shadowMapIdx;
   glm::mat4 lightSpaceMatrix;
-  bool shadows;
+  float shadowFactor;
 };
 
 struct Skylight {

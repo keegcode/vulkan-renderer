@@ -1,9 +1,9 @@
 #pragma once
 
-#include <filesystem>
-#include <vulkan/vulkan.hpp>
-#include <glm/mat4x4.hpp>
 #include <assimp/matrix4x4.h>
+#include <filesystem>
+#include <glm/mat4x4.hpp>
+#include <vulkan/vulkan.hpp>
 
 namespace utils {
 vk::DeviceSize getAlignedSize(const vk::DeviceSize size,

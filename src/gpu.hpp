@@ -64,7 +64,14 @@ struct Image {
   vk::Image image;
 };
 
-enum class TextureType { BaseColor, MetallicRoughness, Cube, Normal, Emissive, Shadow };
+enum class TextureType {
+  BaseColor,
+  MetallicRoughness,
+  Cube,
+  Normal,
+  Emissive,
+  Shadow
+};
 
 struct Texture {
   Image image;
@@ -228,8 +235,8 @@ class GPU {
   Image createCubemapTexture(const std::array<uint8_t*, 6>& data,
                              const vk::Extent2D& extent);
   Image createCubemapTexture(const CubemapOptions& options) const;
-  Image GPU::createDepthCubemap() const;
-  Image GPU::createF32Cubemap() const;
+  Image createDepthCubemap() const;
+  Image createF32Cubemap() const;
 
   Image createMultiSampleImage();
 

@@ -29,7 +29,7 @@ find_package(assimp REQUIRED)
 
 file(COPY "${PROJECT_SOURCE_DIR}/shaders/"   DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/shaders/")
 file(COPY "${PROJECT_SOURCE_DIR}/textures/"  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/textures/")
-file(COPY "${PROJECT_SOURCE_DIR}/assets/"    DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/assets/")
+file(COPY "${PROJECT_SOURCE_DIR}/models/"    DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/models/")
 
 add_executable(${PROJECT_NAME} 
   src/main.cpp 

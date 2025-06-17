@@ -35,15 +35,13 @@ int32_t main() {
   config.models.push_back("./models/DamagedHelmet/glTF/DamagedHelmet.gltf");
   config.models.push_back(
       "./models/GlassBrokenWindow/glTF/GlassBrokenWindow.gltf");
-  config.models.push_back(
-      "./models/CompareMetallic/glTF/CompareMetallic.gltf");
 
-  config.directionalLight.shadows = false;
+  config.directionalLight.shadowFactor = 0.0f;
   config.directionalLight.direction =
       glm::normalize(glm::vec3{0.0f, -150.0f, 0.0f});
-  config.directionalLight.ambient = glm::vec3{0.01f};
-  config.directionalLight.diffuse = glm::vec3{0.01f};
-  config.directionalLight.specular = glm::vec3{0.01f};
+  config.directionalLight.ambient = glm::vec3{0.1f};
+  config.directionalLight.diffuse = glm::vec3{0.1f};
+  config.directionalLight.specular = glm::vec3{0.1f};
   config.directionalLight.lightSpaceMatrix =
       glm::ortho(-200.0f, 200.0f, -200.0f, 200.0f, 1.0f, 500.0f);
   config.directionalLight.lightSpaceMatrix[1][1] *= -1;
@@ -52,30 +50,30 @@ int32_t main() {
                   glm::vec3{0.0f, 1.0f, 0.0f});
 
   PointLight pointLight{};
-  pointLight.position = glm::vec3{0.0f, 20.0f, -20.0f};
-  pointLight.ambient = glm::vec3{0.05f};
-  pointLight.diffuse = glm::vec3{1.0f};
+  pointLight.position = glm::vec3{0.0f, 50.0f, 0.0f};
+  pointLight.ambient = glm::vec3{0.1f};
+  pointLight.diffuse = glm::vec3{50.0f};
   pointLight.specular = glm::vec3{1.0f};
   pointLight.constant = 1.0f;
   pointLight.linear = 0.00001;
-  pointLight.shadows = false;
-  config.pointLights.push_back(pointLight);
+  pointLight.shadowFactor = 1.0;
+  //config.pointLights.push_back(pointLight);
 
   SpotLight spotLight{};
   spotLight.position = glm::vec3{0.0f, 60.0f, 0.0f};
-  spotLight.direction = glm::vec3{0.0f, -1.0f, 0.0f};
-  spotLight.cutOff = glm::cos(glm::radians(10.0f));
-  spotLight.outerCutOff = glm::cos(glm::radians(20.0f));
+  spotLight.direction = glm::vec3{0.01f, -1.0f, 0.01f};
+  spotLight.cutOff = glm::cos(glm::radians(30.0f));
+  spotLight.outerCutOff = glm::cos(glm::radians(40.0f));
   spotLight.ambient = glm::vec3{0.01f};
-  spotLight.diffuse = glm::vec3{0.5f};
-  spotLight.specular = glm::vec3{0.5f};
+  spotLight.diffuse = glm::vec3{15.0f};
+  spotLight.specular = glm::vec3{15.0f};
   spotLight.constant = 1.0f;
-  spotLight.linear = 0.0;
-  spotLight.shadows = false;
+  spotLight.linear = 0.00001f;
+  spotLight.shadowFactor = 0.0f;
   spotLight.lightSpaceMatrix =
-      glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 500.0f);
+      glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 800.0f);
   spotLight.lightSpaceMatrix[1][1] *= -1;
-  spotLight.lightSpaceMatrix *= glm::lookAt(spotLight.position, glm::vec3{0.0},
+  spotLight.lightSpaceMatrix *= glm::lookAt(spotLight.position, spotLight.direction + spotLight.position,
                                             glm::vec3{0.0f, 1.0f, 0.0f});
   config.spotLights.push_back(spotLight);
 
@@ -105,7 +103,7 @@ int32_t main() {
       glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 15.0f, 25.0f}) *
       glm::scale(glm::mat4{1.0f}, glm::vec3{20.0f});
   window2.modelIdx = 3;
-  
+
   config.entities.push_back(sponza);
   config.entities.push_back(helmet);
   config.entities.push_back(window);

@@ -223,7 +223,7 @@ void GPU::createSwapchain() {
                             .setHeight(static_cast<uint32_t>(h));
 
   vk::SurfaceFormatKHR surfaceFormat{};
-  surfaceFormat.format = vk::Format::eB8G8R8A8Srgb;
+  surfaceFormat.format = vk::Format::eR8G8B8A8Srgb;
   surfaceFormat.colorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
 
   vkb::SwapchainBuilder builder =
@@ -652,9 +652,7 @@ Image GPU::createCubemapTexture(const CubemapOptions& options) const {
           .setArrayLayers(6)
           .setSamples(vk::SampleCountFlagBits::e1)
           .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(
-                    vk::ImageUsageFlagBits::eSampled |
-                    options.usage)
+          .setUsage(vk::ImageUsageFlagBits::eSampled | options.usage)
           .setSharingMode(vk::SharingMode::eExclusive)
           .setInitialLayout(vk::ImageLayout::eUndefined)
           .setExtent(image.extent);
@@ -1016,7 +1014,7 @@ Pipeline GPU::createPipeline(const PipelineOptions& options) const {
     stageFlagBits = stageFlagBits | shader.stage;
   }
 
-  vk::Format colorAttachmentFormat = vk::Format::eB8G8R8A8Srgb;
+  vk::Format colorAttachmentFormat = vk::Format::eR8G8B8A8Srgb;
   vk::Format depthAttachmentFormat = vk::Format::eD32Sfloat;
 
   vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo =
@@ -1269,7 +1267,8 @@ void GPU::beginShadowCubePass(const Texture& shadowMap) const {
           .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
           .setSubresourceRange(subresourceRange);
 
-  vk::ImageMemoryBarrier2 imageMemoryBarriers[2] = {depthMemoryBarrier, colorImageBarrier};
+  vk::ImageMemoryBarrier2 imageMemoryBarriers[2] = {depthMemoryBarrier,
+                                                    colorImageBarrier};
 
   vk::DependencyInfo dependencyInfo =
       vk::DependencyInfo{}
@@ -1283,8 +1282,8 @@ void GPU::beginShadowCubePass(const Texture& shadowMap) const {
               vk::Rect2D{}.setExtent(vk::Extent2D{shadowSize, shadowSize}))
           .setLayerCount(6)
           .setViewMask(0b111111)
-		  .setColorAttachments(colorAttachment)
-		  .setPDepthAttachment(&depthAttachment);
+          .setColorAttachments(colorAttachment)
+          .setPDepthAttachment(&depthAttachment);
 
   commandBuffer.pipelineBarrier2(dependencyInfo);
   commandBuffer.beginRendering(renderingInfo);
@@ -1466,7 +1465,7 @@ Image GPU::createMultiSampleImage() {
   VkImageCreateInfo imageCreateInfo =
       vk::ImageCreateInfo{}
           .setImageType(vk::ImageType::e2D)
-          .setFormat(vk::Format::eB8G8R8A8Srgb)
+          .setFormat(vk::Format::eR8G8B8A8Srgb)
           .setMipLevels(1)
           .setArrayLayers(1)
           .setSamples(sampleCount)
@@ -1499,7 +1498,7 @@ Image GPU::createMultiSampleImage() {
       vk::ImageViewCreateInfo{}
           .setImage(image.image)
           .setViewType(vk::ImageViewType::e2D)
-          .setFormat(vk::Format::eB8G8R8A8Srgb)
+          .setFormat(vk::Format::eR8G8B8A8Srgb)
           .setSubresourceRange(imageSubresourceRange);
 
   image.view = device.createImageView(imageViewCreateInfo, nullptr);

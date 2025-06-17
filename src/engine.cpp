@@ -18,9 +18,9 @@
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <thread>
 #include <vector>
-#include <iostream>
 
 #include <glm/common.hpp>
 #include <glm/detail/qualifier.hpp>
@@ -66,14 +66,14 @@ void Engine::drawFrame(uint64_t deltaTime) {
     shadowPassPushConstant.model = transform.model;
     shadowPassPushConstant.projection = directionalLight.lightSpaceMatrix;
 
-    if (directionalLight.shadows) {
+    if (directionalLight.shadowFactor > 0.0f) {
       gpu.beginShadowPass(shadowMaps[directionalLight.shadowMapIdx]);
       drawShadows(shadowPassPushConstant);
       gpu.commandBuffer.endRendering();
     }
 
     for (const SpotLight& spotLight : spotLights) {
-      if (!spotLight.shadows) {
+      if (spotLight.shadowFactor > 0.0f) {
         continue;
       }
       shadowPassPushConstant.projection = spotLight.lightSpaceMatrix;
@@ -89,7 +89,7 @@ void Engine::drawFrame(uint64_t deltaTime) {
     ShadowCubePassPushConstant shadowCubePassPushConstant{};
 
     for (const PointLight& pointLight : pointLights) {
-      if (!pointLight.shadows) {
+      if (pointLight.shadowFactor > 0.0f) {
         continue;
       }
 
@@ -424,7 +424,8 @@ void Engine::loadModel(const std::filesystem::path& path) {
   for (const TextureCreateInfo& createInfo : createInfos) {
     ImageData image = cache[createInfo.path.string()];
     Texture& texture = textures[createInfo.textureIdx];
-    vk::Format format = texture.type == TextureType::Normal || texture.type == TextureType::MetallicRoughness
+    vk::Format format = texture.type == TextureType::Normal ||
+                                texture.type == TextureType::MetallicRoughness
                             ? vk::Format::eR8G8B8A8Unorm
                             : vk::Format::eR8G8B8A8Srgb;
     texture.image = gpu.createTexture2D(
@@ -542,7 +543,8 @@ void Engine::loadMaterial(Model& model,
   };
 
   float metallicFactor = 0.0;
-  if (assimpMaterial->Get(AI_MATKEY_METALLIC_FACTOR, metallicFactor) == aiReturn_SUCCESS) {
+  if (assimpMaterial->Get(AI_MATKEY_METALLIC_FACTOR, metallicFactor) ==
+      aiReturn_SUCCESS) {
     material.metallic = metallicFactor;
   };
 
@@ -591,9 +593,11 @@ void Engine::loadMaterial(Model& model,
   if (assimpMaterial->GetTextureCount(aiTextureType_UNKNOWN) > 0) {
     auto [metallicRoughness, metallicRoughnessSampler] =
         loadTexture(assimpMaterial, aiTextureType_UNKNOWN);
-    material.metallicRoughnessTextureIdx = static_cast<uint32_t>(textures.size());
-    createInfos.push_back({model.path.parent_path().append(metallicRoughness.path),
-                           metallicRoughnessSampler, material.metallicRoughnessTextureIdx});
+    material.metallicRoughnessTextureIdx =
+        static_cast<uint32_t>(textures.size());
+    createInfos.push_back(
+        {model.path.parent_path().append(metallicRoughness.path),
+         metallicRoughnessSampler, material.metallicRoughnessTextureIdx});
     textures.push_back(metallicRoughness);
   }
 
@@ -628,10 +632,11 @@ void Engine::processNode(Model& model,
   }
 
   for (uint32_t i = 0; i < node->mNumChildren; i++) {
-	Entity entity{};
-	entity.modelIdx = models.size();
-	entity.matrix = utils::aiMatrix4x4ToGlm(&node->mChildren[i]->mTransformation);
-	entities.push_back(entity);
+    Entity entity{};
+    entity.modelIdx = models.size();
+    entity.matrix =
+        utils::aiMatrix4x4ToGlm(&node->mChildren[i]->mTransformation);
+    entities.push_back(entity);
 
     processNode(model, scene, node->mChildren[i], createInfos);
   }
@@ -675,14 +680,14 @@ void Engine::prepareDescriptors() {
   shadowMap.sampler = shadowMapSampler;
   shadowMap.type = TextureType::Shadow;
 
-  if (directionalLight.shadows) {
+  if (directionalLight.shadowFactor > 0.0f) {
     directionalLight.shadowMapIdx = shadowMaps.size();
     shadowMap.image = gpu.createShadowMap();
     shadowMaps.push_back(shadowMap);
   }
 
   for (PointLight& light : pointLights) {
-    if (light.shadows) {
+    if (light.shadowFactor > 0.0f) {
       light.shadowMapIdx = shadowCubes.size();
       shadowMap.image = gpu.createF32Cubemap();
       shadowCubes.push_back(shadowMap);
@@ -690,7 +695,7 @@ void Engine::prepareDescriptors() {
   }
 
   for (SpotLight& light : spotLights) {
-    if (light.shadows) {
+    if (light.shadowFactor > 0.0f) {
       light.shadowMapIdx = shadowMaps.size();
       shadowMap.image = gpu.createShadowMap();
       shadowMaps.push_back(shadowMap);

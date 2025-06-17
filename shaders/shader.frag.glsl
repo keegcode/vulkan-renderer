@@ -4,9 +4,10 @@
 
 #define MAX_SHININESS 2048.0
 #define PI 3.14159265359
-#define DIFFUSE_INTENSITY 0.95
-#define SPECULAR_INTENSITY 0.95
+#define DIFFUSE_INTENSITY 1.0 
+#define SPECULAR_INTENSITY 1.0 
 #define FRESNEL_0 0.05
+#define EXPOSURE 0.6
 
 layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec2 inTexCoord;
@@ -70,7 +71,7 @@ layout(scalar, set = 3, binding = 1) uniform DirectionalLight {
   vec3 specular;
   uint shadowMapIdx;
   mat4 lightSpaceMatrix;
-  bool shadows;
+  float shadowFactor;
 }
 directionalLight;
 
@@ -82,7 +83,7 @@ struct PointLight {
   vec3 diffuse;
   vec3 specular;
   uint shadowMapIdx;
-  bool shadows;
+  float shadowFactor;
   float farPlane;
 };
 
@@ -103,7 +104,7 @@ struct SpotLight {
   float outerCutOff;
   uint shadowMapIdx;
   mat4 lightSpaceMatrix;
-  bool shadows;
+  float shadowFactor;
 };
 
 layout(scalar, set = 3, binding = 3) readonly buffer SpotLights {
@@ -114,23 +115,16 @@ spotLights;
 float calcPointShadow(vec3 fragPos, uint pointLightIdx, vec3 normal) {
   PointLight pointLight = pointLights.data[pointLightIdx];
 
-  if (!pointLight.shadows) {
-    return 1.0;
-  }
-
   vec3 lightToFrag = fragPos - pointLight.position;
   float currentDepth = dot(lightToFrag, lightToFrag);
 
   float bias = 0.95;
-  
-  return texture(shadowCubes[pointLight.shadowMapIdx], vec4(lightToFrag, currentDepth * bias));
+
+  return texture(shadowCubes[pointLight.shadowMapIdx],
+                 vec4(lightToFrag, currentDepth * bias));
 }
 
-float calcShadow(vec4 inLightPos, uint shadowMapIdx, bool shadowsEnabled) {
-  if (!shadowsEnabled) {
-    return 1.0;
-  }
-
+float calcShadow(vec4 inLightPos, uint shadowMapIdx) {
   vec4 sampleLightPos = inLightPos / inLightPos.w;
   sampleLightPos.xy = sampleLightPos.xy * 0.5 + 0.5;
 
@@ -138,56 +132,58 @@ float calcShadow(vec4 inLightPos, uint shadowMapIdx, bool shadowsEnabled) {
 }
 
 float calcFresnelFactor(vec3 fragToCameraDir, vec3 normal) {
-    float fresnelDot = 1.0 - max(dot(fragToCameraDir, normal), 0.0);
-    return FRESNEL_0 + ((1.0 - FRESNEL_0) * pow(fresnelDot, 5.0));
+  float fresnelDot = 1.0 - max(dot(fragToCameraDir, normal), 0.0);
+  return FRESNEL_0 + ((1.0 - FRESNEL_0) * pow(fresnelDot, 5.0));
 }
 
 struct SurfaceColor {
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
-    float specularFactor;
-    float metallicFactor;
+  vec3 ambient;
+  vec3 diffuse;
+  vec3 specular;
+  float specularFactor;
+  float metallicFactor;
 };
 
-SurfaceColor calcSurfaceColor(
-    vec3 fragToLightDir,
-    vec3 halfDir,
-    vec3 normal,
-    vec3 ambientColor,
-    vec3 diffuseColor,
-    vec3 specularColor
-) {
+SurfaceColor calcSurfaceColor(vec3 fragToLightDir,
+                              vec3 halfDir,
+                              vec3 normal,
+                              vec3 ambientColor,
+                              vec3 diffuseColor,
+                              vec3 specularColor) {
   Material material = materials.data[pushConstant.materialId];
 
-  float sampledRoughness = texture(textures[material.metallicRoughnessTextureIdx], inTexCoord).g;
-  float sampledMetallic = texture(textures[material.metallicRoughnessTextureIdx], inTexCoord).b;
-  vec3 sampledDiffuse = texture(textures[material.diffuseTextureIdx], inTexCoord).rgb;
+  float sampledRoughness =
+      texture(textures[material.metallicRoughnessTextureIdx], inTexCoord).g;
+  float sampledMetallic =
+      texture(textures[material.metallicRoughnessTextureIdx], inTexCoord).b;
+  vec3 sampledDiffuse =
+      texture(textures[material.diffuseTextureIdx], inTexCoord).rgb;
 
-  float shininess = pow(MAX_SHININESS, 1.0 - sampledRoughness);
-  float normalization = ((shininess + 2.0) * (shininess + 4.0)) / (8.0 * PI * (pow(2.0, -shininess * 0.5) + shininess));
+  float roughness = material.roughness * sampledRoughness;
+  float metallic = material.metallic * sampledMetallic;
+
+  float shininess = pow(MAX_SHININESS, 1.0 - roughness);
+  float normalization = ((shininess + 2.0) * (shininess + 4.0)) /
+                        (8.0 * PI * (pow(2.0, -shininess * 0.5) + shininess));
   normalization = max(normalization - 0.3496155267919281, 0.0) * PI;
 
   float diffuseFactor = max(dot(fragToLightDir, normal), 0.0);
-  float specularFactor = pow(max(dot(normal, halfDir), 0.0), shininess) * diffuseFactor * normalization;
+  float specularFactor = pow(max(dot(normal, halfDir), 0.0), shininess) *
+                         diffuseFactor * normalization;
 
-  vec3 specular =
-      specularColor * specularFactor * (1.0 - material.roughness) * SPECULAR_INTENSITY;
+  vec3 specular = specularColor * specularFactor * SPECULAR_INTENSITY;
 
   vec3 diffuse =
-      diffuseColor * diffuseFactor *
-       sampledDiffuse * DIFFUSE_INTENSITY;
+      diffuseColor * diffuseFactor * sampledDiffuse * DIFFUSE_INTENSITY;
 
-  vec3 ambient =
-      ambientColor *
-      sampledDiffuse;
+  vec3 ambient = ambientColor * sampledDiffuse;
 
   SurfaceColor color;
   color.ambient = ambient;
   color.diffuse = diffuse;
   color.specular = specular;
   color.specularFactor = specularFactor;
-  color.metallicFactor = sampledMetallic;
+  color.metallicFactor = metallic;
 
   return color;
 }
@@ -198,18 +194,17 @@ vec3 calcDirectionLight(vec3 normal, vec3 fragPos, vec3 fragToCameraDir) {
 
   float shadowFactor =
       calcShadow(directionalLight.lightSpaceMatrix * inPos,
-                 directionalLight.shadowMapIdx, directionalLight.shadows);
+                 directionalLight.shadowMapIdx) * directionalLight.shadowFactor;
 
   SurfaceColor surfaceColor = calcSurfaceColor(
-    fragToLightDir,
-    halfDir,
-    normal,
-    directionalLight.ambient,
-    directionalLight.diffuse,
-    directionalLight.specular
-  );
+      fragToLightDir, halfDir, normal, directionalLight.ambient,
+      directionalLight.diffuse, directionalLight.specular);
 
-  return mix(surfaceColor.ambient + ((surfaceColor.diffuse + surfaceColor.specular) * shadowFactor), surfaceColor.specularFactor * surfaceColor.diffuse, surfaceColor.metallicFactor);
+  return mix(
+      surfaceColor.ambient +
+          ((surfaceColor.diffuse + surfaceColor.specular) * shadowFactor),
+      surfaceColor.specularFactor * surfaceColor.diffuse,
+      surfaceColor.metallicFactor);
 }
 
 vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 fragToCameraDir) {
@@ -221,27 +216,26 @@ vec3 calcPointLight(uint idx, vec3 normal, vec3 fragPos, vec3 fragToCameraDir) {
   vec3 fragToLightDir = normalize(fragToLightVec);
   vec3 halfDir = normalize(vec3(fragToLightDir + fragToCameraDir));
 
-  SurfaceColor surfaceColor = calcSurfaceColor(
-    fragToLightDir,
-    halfDir,
-    normal,
-    pointLight.ambient,
-    pointLight.diffuse,
-    pointLight.specular
-  );
+  SurfaceColor surfaceColor =
+      calcSurfaceColor(fragToLightDir, halfDir, normal, pointLight.ambient,
+                       pointLight.diffuse, pointLight.specular);
 
   float distance = dot(fragToLightVec, fragToLightVec);
 
-  float attenuation = 1.0 / (pointLight.constant +
-                             pointLight.linear * distance);
+  float attenuation =
+      1.0 / (pointLight.constant + pointLight.linear * distance);
 
   surfaceColor.ambient *= attenuation;
   surfaceColor.diffuse *= attenuation;
   surfaceColor.specular *= attenuation;
 
-  float shadowFactor = calcPointShadow(fragPos, idx, normal);
+  float shadowFactor = calcPointShadow(fragPos, idx, normal) * pointLight.shadowFactor;
 
-  return mix(surfaceColor.ambient + ((surfaceColor.diffuse + surfaceColor.specular) * shadowFactor), surfaceColor.specularFactor * surfaceColor.diffuse, surfaceColor.metallicFactor);
+  return mix(
+      surfaceColor.ambient +
+          ((surfaceColor.diffuse + surfaceColor.specular) * shadowFactor),
+      surfaceColor.specularFactor * surfaceColor.diffuse,
+      surfaceColor.metallicFactor);
 }
 
 vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 fragToCameraDir) {
@@ -257,26 +251,18 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 fragToCameraDir) {
   vec3 halfDir = normalize(fragToLightDir + fragToCameraDir);
   float theta = dot(fragToLightDir, -lightDir);
 
-  SurfaceColor surfaceColor = calcSurfaceColor(
-    fragToLightDir,
-    halfDir,
-    normal,
-    spotLight.ambient,
-    spotLight.diffuse,
-    spotLight.specular
-  );
+  SurfaceColor surfaceColor =
+      calcSurfaceColor(fragToLightDir, halfDir, normal, spotLight.ambient,
+                       spotLight.diffuse, spotLight.specular);
 
   if (theta < spotLight.outerCutOff) {
     return surfaceColor.ambient;
   }
 
-  float epsilon =
-      spotLight.cutOff - spotLight.outerCutOff;
-  float intensity =
-      clamp((theta - spotLight.outerCutOff) / epsilon, 0.0, 1.0);
+  float epsilon = spotLight.cutOff - spotLight.outerCutOff;
+  float intensity = clamp((theta - spotLight.outerCutOff) / epsilon, 0.0, 1.0);
   float distance = dot(lightDir, lightDir);
-  float attenuation = 1.0 / (spotLight.constant +
-                             spotLight.linear * distance);
+  float attenuation = 1.0 / (spotLight.constant + spotLight.linear * distance);
 
   surfaceColor.diffuse *= intensity;
   surfaceColor.specular *= intensity;
@@ -285,9 +271,13 @@ vec3 calcSpotLight(uint idx, vec3 normal, vec3 fragPos, vec3 fragToCameraDir) {
   surfaceColor.diffuse *= attenuation;
   surfaceColor.specular *= attenuation;
 
-  float shadowFactor = calcPointShadow(fragPos, idx, normal);
+  float shadowFactor = calcShadow(spotLight.lightSpaceMatrix * inPos, spotLight.shadowMapIdx) * spotLight.shadowFactor;
 
-  return mix(surfaceColor.ambient + ((surfaceColor.diffuse + surfaceColor.specular) * shadowFactor), surfaceColor.specularFactor * surfaceColor.diffuse, surfaceColor.metallicFactor);
+  return mix(
+      surfaceColor.ambient +
+          ((surfaceColor.diffuse + surfaceColor.specular) * shadowFactor),
+      surfaceColor.specularFactor * surfaceColor.diffuse,
+      surfaceColor.metallicFactor);
 }
 
 float linearizeDepth(float depth) {
@@ -297,13 +287,26 @@ float linearizeDepth(float depth) {
 }
 
 vec3 skyboxReflection(vec3 diffuse, vec3 fragToCameraDir, vec3 normal) {
-   Material material = materials.data[pushConstant.materialId];
-   vec3 reflection = texture(cubemaps[skylight.cubemapTextureIdx], reflect(-fragToCameraDir, normal)).rgb;
-   return mix(
-		reflection * calcFresnelFactor(fragToCameraDir, normal) * pow(1.0 - material.roughness, 2.0), 
-		reflection * diffuse, 
-        1.0
-    ); 
+  Material material = materials.data[pushConstant.materialId];
+  vec3 reflection = texture(cubemaps[skylight.cubemapTextureIdx],
+                            reflect(-fragToCameraDir, normal))
+                        .rgb;
+  return mix(reflection * calcFresnelFactor(fragToCameraDir, normal) *
+                 pow(1.0 - material.roughness, 2.0),
+             reflection * diffuse, 1.0);
+}
+
+vec3 ACESFilm(vec3 x) {
+  float a = 2.51f;
+  float b = 0.03f;
+  float c = 2.43f;
+  float d = 0.59f;
+  float e = 0.14f;
+  return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+
+vec3 Reinhard(vec3 x) {
+  return x / (x + vec3(1.0));
 }
 
 void main() {
@@ -318,11 +321,7 @@ void main() {
     vec3 bitangent = cross(normal, tangent);
     mat3 TBN = mat3(tangent, bitangent, normal);
 
-    normal =
-        texture(
-            textures[material.normalTextureIdx],
-            inTexCoord)
-            .rgb;
+    normal = texture(textures[material.normalTextureIdx], inTexCoord).rgb;
     normal = normal * 2.0 - 1.0;
     normal = normalize(TBN * normal);
   }
@@ -338,9 +337,7 @@ void main() {
     shadow += calcSpotLight(i, normal, fragPos, fragToCameraDir);
   }
 
-  vec4 color = texture(
-      textures[material.diffuseTextureIdx],
-      inTexCoord);
+  vec4 color = texture(textures[material.diffuseTextureIdx], inTexCoord);
 
   if (color.a < material.alphaCutoff) {
     discard;
@@ -353,15 +350,15 @@ void main() {
 
   vec3 emissive =
       material.emissive *
-      vec3(texture(
-          textures[material.emissiveTextureIdx],
-          inTexCoord));
+      vec3(texture(textures[material.emissiveTextureIdx], inTexCoord));
 
-  color = inColor * vec4(material.color, 1.0) *
-          color * vec4(shadow, 1.0);
+  color = inColor * vec4(material.color, 1.0) * color * vec4(shadow, 1.0);
 
   color.xyz += emissive;
   color.xyz += skyboxReflection(color.xyz, fragToCameraDir, normal);
 
-  outColor = mix(color, fog, c * 0.03);
+  color = mix(color, fog, c * 0.03);
+
+  //outColor = vec4(ACESFilm(color.xyz * EXPOSURE), color.w);
+  outColor = vec4(Reinhard(color.xyz), color.w);
 }
